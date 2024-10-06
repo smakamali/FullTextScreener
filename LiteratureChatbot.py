@@ -33,19 +33,27 @@ from configparser import ConfigParser
 
 import docker
 import gradio as gr
-import openai
+# import openai
 from tqdm import tqdm
 from neo4j import GraphDatabase
 
-from llama_index.llms.azure_openai import AzureOpenAI
-from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
+import torch
+import transformers
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.llms.huggingface import HuggingFaceLLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import BitsAndBytesConfig
+from llama_index.core.agent import ReActAgent
+
+# from llama_index.llms.azure_openai import AzureOpenAI
+# from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PropertyGraphIndex
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.core.retrievers import VectorIndexRetriever, PGRetriever, VectorContextRetriever, LLMSynonymRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.settings import Settings
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
-from llama_index.agent.openai import OpenAIAgent
+# from llama_index.agent.openai import OpenAIAgent
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.indices.property_graph import SimpleLLMPathExtractor, ImplicitPathExtractor
 from llama_index.core.utils import iter_batch
@@ -53,12 +61,13 @@ from llama_index.core.prompts import ChatPromptTemplate, ChatMessage
 from llama_index.graph_stores.neo4j import Neo4jPGStore as Neo4jPropertyGraphStore
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 
-from Modules.AI.Readers import CustomCSVReader, CustomPDFReader
-from Modules.AI.Tools import touch, delete_folder_contents, ensure_folder_exists
-from Modules.AI.Retrievers import HybridRetriever
-from Modules.AI.CitationExtractor import format_references
-from Modules.AI.CitationExtractor import get_agent_citations_n4j as get_agent_citations
-from Modules.AI.NodeParser import CustomSemanticSplitterNodeParser
+
+from Modules.Readers import CustomCSVReader, CustomPDFReader
+from Modules.Tools import touch, delete_folder_contents, ensure_folder_exists
+from Modules.Retrievers import HybridRetriever
+from Modules.CitationExtractor import format_references
+from Modules.CitationExtractor import get_agent_citations_n4j as get_agent_citations
+from Modules.NodeParser import CustomSemanticSplitterNodeParser
  
 ################################ Set Configurations ################################
 
@@ -68,21 +77,23 @@ log_dir = './logs/'
 data_path = "./neo4j_vol1/data"
 plugins_path = "./neo4j_vol1/plugins"
 
-# Azure Endpoint
-config = ConfigParser()
-config.read('./config/config.cfg')
+llm_model_id = "tiiuae/falcon-7b-instruct"
+# llm_model_id = "EleutherAI/gpt-neo-1.3B"
+# # Azure Endpoint
+# config = ConfigParser()
+# config.read('./config/config.cfg')
 
-api_key = config.get('azure-openai', 'api_key')
-azure_endpoint = config.get('azure-openai', 'azure_endpoint')
+# api_key = config.get('azure-openai', 'api_key')
+# azure_endpoint = config.get('azure-openai', 'azure_endpoint')
 
-embedding_model_name = config.get('embedding-model', 'model')
-embedding_model_deployment = config.get('embedding-model', 'deployment_name')
-embedding_model_api_version = config.get('embedding-model', 'api_version')
+# embedding_model_name = config.get('embedding-model', 'model')
+# embedding_model_deployment = config.get('embedding-model', 'deployment_name')
+# embedding_model_api_version = config.get('embedding-model', 'api_version')
 
-llm_model = 'gpt4o'  # can be set to `gpt35turbo` or `gpt4o`, `gpt4o` is much stronger but is also more expensive
-llm_model_name = config.get(llm_model, 'model')
-llm_model_deployment = config.get(llm_model, 'deployment_name')
-llm_model_api_version = config.get(llm_model, 'api_version')
+# llm_model = 'gpt4o'  # can be set to `gpt35turbo` or `gpt4o`, `gpt4o` is much stronger but is also more expensive
+# llm_model_name = config.get(llm_model, 'model')
+# llm_model_deployment = config.get(llm_model, 'deployment_name')
+# llm_model_api_version = config.get(llm_model, 'api_version')
 
 ################################ Set Parameters ################################
 
@@ -133,29 +144,69 @@ if enable_logging:
 
 ################################ Define Endpoints ################################
 
-# The embedding model API endpoint using Azure OpenAI
-embed_model = AzureOpenAIEmbedding(
-    model=embedding_model_name,
-    deployment_name=embedding_model_deployment,
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=embedding_model_api_version,
-)
 
-# The LLM API endpoint for synthesizing output using Azure OpenAI
-llm = AzureOpenAI(
-    model=llm_model_name,
-    deployment_name=llm_model_deployment,
-    api_key=api_key,
-    azure_endpoint=azure_endpoint,
-    api_version=llm_model_api_version,
+# The embedding model from Hugging Face
+embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# model_kwargs1 = {
+#     # "temperature":1 ,
+#     # "do_sample":True,
+#     "min_new_tokens":200-25,
+#     "max_new_tokens":200+25,
+#     'repetition_penalty':20.0
+# }
+# Load an open-source LLM from Hugging Face (e.g., LLaMA, GPT-Neo, GPT-J)
+quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            )
+model = AutoModelForCausalLM.from_pretrained(
+    llm_model_id,
+    quantization_config=quantization_config
 )
+tokenizer = AutoTokenizer.from_pretrained(llm_model_id )
+# model.to_bettertransformer()
+
+# The LLM model wrapped for llama_index
+llm = HuggingFaceLLM(model=model, tokenizer=tokenizer)
+# pipeline = transformers.pipeline(
+#             "text-generation",
+#             model=model,
+#             tokenizer=tokenizer,
+#             torch_dtype=torch.bfloat16,
+#             device_map="auto",
+#             pad_token_id=tokenizer.eos_token_id,
+#             **model_kwargs1,
+#         )
+# llm = HuggingFacePipeline(pipeline=pipeline)
+
+# # The embedding model API endpoint using Azure OpenAI
+# embed_model = AzureOpenAIEmbedding(
+#     model=embedding_model_name,
+#     deployment_name=embedding_model_deployment,
+#     api_key=api_key,
+#     azure_endpoint=azure_endpoint,
+#     api_version=embedding_model_api_version,
+# )
+
+# # The LLM API endpoint for synthesizing output using Azure OpenAI
+# llm = AzureOpenAI(
+#     model=llm_model_name,
+#     deployment_name=llm_model_deployment,
+#     api_key=api_key,
+#     azure_endpoint=azure_endpoint,
+#     api_version=llm_model_api_version,
+# )
 
 # set the service context using llama_index Settings
 Settings.llm = llm
 Settings.embed_model = embed_model
 
-################################ Set Chunking Method ################################
+
+# print(llm.complete("No pain no "))
+# ################################ Set Chunking Method ################################
 
 custom_splitter = CustomSemanticSplitterNodeParser(
     buffer_size=buffer_size,
@@ -426,9 +477,15 @@ def get_chatbot_agents(vector_top_k=vector_top_k, context_top_k=context_top_k, m
             description="useful for answering all queries based on the given context.",
         ),
     )
-    vector_agent = OpenAIAgent.from_tools(
+    # vector_agent = OpenAIAgent.from_tools(
+    #     [vector_query_engine_tool],
+    #     verbose=True,
+    #     prefix_messages=custom_prompt_template.message_templates,
+    # )
+    vector_agent = ReActAgent.from_tools(
         [vector_query_engine_tool],
         verbose=True,
+        llm=llm,
         prefix_messages=custom_prompt_template.message_templates,
     )
 
@@ -439,9 +496,15 @@ def get_chatbot_agents(vector_top_k=vector_top_k, context_top_k=context_top_k, m
             description="useful for answering all queries based on the given context.",
         ),
     )
-    graph_agent = OpenAIAgent.from_tools(
+    # graph_agent = OpenAIAgent.from_tools(
+    #     [graph_query_engine_tool],
+    #     verbose=True,
+    #     prefix_messages=custom_prompt_template.message_templates,
+    # )
+    graph_agent = ReActAgent.from_tools(
         [graph_query_engine_tool],
         verbose=True,
+        llm=llm,
         prefix_messages=custom_prompt_template.message_templates,
     )
 
@@ -452,9 +515,15 @@ def get_chatbot_agents(vector_top_k=vector_top_k, context_top_k=context_top_k, m
             description="useful for answering all queries based on the given context.",
         ),
     )
-    graph_vector_agent = OpenAIAgent.from_tools(
+    # graph_vector_agent = OpenAIAgent.from_tools(
+    #     [graph_vector_query_engine_tool],
+    #     verbose=True,
+    #     prefix_messages=custom_prompt_template.message_templates,
+    # )
+    graph_vector_agent = ReActAgent.from_tools(
         [graph_vector_query_engine_tool],
         verbose=True,
+        llm=llm,
         prefix_messages=custom_prompt_template.message_templates,
     )
     print("Chatbot agents updated!")
