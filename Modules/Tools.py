@@ -5,7 +5,7 @@ def touch(path):
     with open(path, 'a'):
         os.utime(path, None)
 
-def delete_folder_contents(folder_path):
+def deleteFolderContents(folder_path):
     # Check if the folder exists (it should, due to ensure_folder_exists call)
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -27,7 +27,7 @@ def delete_folder_contents(folder_path):
             except Exception as e:
                 print(f"Failed to delete {file_path}. Reason: {e}")
 
-def ensure_folder_exists(folder_path):
+def ensureFolderExists(folder_path):
     """
     Checks if a folder exists at the specified path, and creates it if it does not exist.
 

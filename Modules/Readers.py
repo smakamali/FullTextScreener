@@ -108,8 +108,9 @@ class CustomPDFReader(PDFReader):
 
                     # extract the citation from the first page of the paper using LLM
                     if page == 0:
-                        prompt_str = 'Extract the paper citation from the information provided below based on this format:\n ``` \n author name(s) (last name, first name;), paper title, publication, year, page number, doi\n ```\n paper\'s first page content{}'.format(page_text)
+                        prompt_str = 'Extract the paper citation from the information provided below based on this format:\n ``` \n author name(s) (last name, first name;), paper title, publication, year, page number, doi\n ```\n paper\'s first page content:\n{}\n ATTENTION: RETURN THE PAPER CITATION ONLY, DO NOT RETURN ANY OTHER INFORMATION, DO NOT REPEAT:'.format(page_text)
                         citation = self._llm.complete(prompt_str).text
+                        print("=====> Citation:\n", citation)
 
                     metadata = {"page_label": page_label, "file_name": file.name, "citation": citation}
                     if extra_info is not None:

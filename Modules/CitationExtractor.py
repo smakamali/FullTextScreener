@@ -71,7 +71,7 @@ def get_agent_citations(AgentChatResponse,kg_index):
     citations = list(np.unique(np.array(citations)))
     return citations
 
-def get_agent_citations_n4j(resp,cutoff_score=0.9):
+def getAgentCitationsN4j(resp,cutoff_score=0.9):
     
     data = []
     dtype = [('key', 'U400'), ('value', 'f4')]
@@ -98,7 +98,7 @@ def get_agent_citations_n4j(resp,cutoff_score=0.9):
     
     return result
 
-def format_references(citations):
+def formatReferences(citations):
     references=''
     if citations.shape[0]>0:
         references = '<br><p style="font-size:12px;">**The following references were reviewed to provide the above answer:**<br><ol type="1" style="font-size:12px;">'
