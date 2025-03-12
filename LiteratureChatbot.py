@@ -1,7 +1,6 @@
+#################################### appVersion = 0.7.0 ######################################
 # TODO: 
 # harmonize config management
-# push the code and move on to reconfiguring the pipeline
-HF_API_TOKEN = "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"
 ################################ Import Required Dependencies ################################
 import os
 import sys
@@ -21,10 +20,7 @@ from neo4j import GraphDatabase
 
 import torch
 # import transformers
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.huggingface import HuggingFaceLLM
 # from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers import BitsAndBytesConfig
 from llama_index.core.agent import ReActAgent
 
 # from llama_index.llms.azure_openai import AzureOpenAI
@@ -62,11 +58,14 @@ class Config:
         self.config = ConfigParser()
         self.config.read(config_file)
 
+        self.dict = {}
         # Load parameters from each section into class attributes
         for section in self.config.sections():
             section_data = self._load_section(section)
             # Set the section as an attribute of the class
             setattr(self, section.replace('-', '_'), section_data)
+            self.dict[section.replace('-', '_')] = section_data
+
 
     def _load_section(self, section):
         """
@@ -261,19 +260,23 @@ def setLogging(config):
 
 # Function to handle rate limits with exponential backoff
 def safeApiCall(call, enableLogging, *args, **kwargs):
-    maxAttempts = 10
+    maxAttempts = 20
     for attempt in range(maxAttempts):
         try:
             startTime = time.time()
             result = call(*args, **kwargs)
             endTime = time.time()
             if enableLogging:
-                logging.info(f"API call successful. Duration: {endTime - startTime:.2f} seconds.")
+                log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
+                logging.info(log_str)
+                print(log_str)
             return result
         except Exception as e:
             wait = 2 ** attempt + random.random()
             if enableLogging:
-                logging.warning(f"Rate limit hit. Waiting for {wait:.2f} seconds.")
+                log_str = f"Error occurred: {e}. Waiting for {wait:.2f} seconds."
+                logging.warning(log_str)
+                print(log_str)
             time.sleep(wait)
     raise Exception("API call failed after maximum number of retries")
 
@@ -389,7 +392,8 @@ class Storage:
         self.url = self.config.neo4j['url1']
         self.username = self.config.neo4j['username']
         self.password = self.config.neo4j['password']
-        self.embedDim = self.config.neo4j['embeddim']
+        service = self.config.llm_model['service']
+        self.embedDim = self.config.dict[service]['embeddim']
 
     def clear(self):
         """
@@ -443,7 +447,9 @@ class Index:
         self.allIndices = self.config.indices['allindices']
         self.enableLogging = self.config.general['enablelogging']
         self.max_new_tokens = self.config.llm_model['max_new_tokens']
-
+        self.url = self.config.neo4j['url1']
+        self.username = self.config.neo4j['username']
+        self.password = self.config.neo4j['password']
 
     def _buildVector(self, documents, batchSize=4):
         """
@@ -506,7 +512,7 @@ class Index:
         """
         This method adds new documents to the existing indices. It loads the documents from the input directory using the SimpleDirectoryReader class and calls the appropriate method based on the index type to build the corresponding index.
         """
-        self.llm.max_new_tokens = 100
+        # self.llm.max_new_tokens = 100
         documents = SimpleDirectoryReader(
             inputDocsDir,
             recursive=True,
@@ -516,7 +522,7 @@ class Index:
                 '.pdf': CustomPDFReader(llm=self.llm),
             },
         ).load_data()
-        self.llm.max_new_tokens = self.max_new_tokens
+        # self.llm.max_new_tokens = self.max_new_tokens
         if indexType == self.allIndices[0]:
             self._buildVector(documents,batchSize)
         elif indexType == self.allIndices[1]:
@@ -540,6 +546,54 @@ class Index:
         else:
             supportedTypes = ','.join(self.allIndices)
             raise Exception(f'indexType must be in ({supportedTypes})')
+    
+    def list_indexes(self):
+        driver = GraphDatabase.driver(self.url, auth=(self.username, self.password))
+        indexes = []
+        try:
+            with driver.session() as session:
+                result = session.run("SHOW INDEXES")
+                for record in result:
+                    indexes.append({
+                        "name": record["name"],
+                        "type": record["type"].upper(),
+                        "owningConstraint": record.get("owningConstraint")
+                    })
+        except Exception as e:
+            print(f"Error occurred while listing indexes: {e}")
+        finally:
+            driver.close()
+        return indexes
+
+    def drop_index(self, index_info):
+        name = index_info["name"]
+        idx_type = index_info["type"]
+        owning_constraint = index_info.get("owningConstraint")
+        driver = GraphDatabase.driver(self.url, auth=(self.username, self.password))
+        try:
+            with driver.session() as session:
+                if owning_constraint:
+                    # Drop constraint-backed indexes using DROP CONSTRAINT.
+                    query = f"DROP CONSTRAINT {owning_constraint}"
+                    print(f"Dropping constraint: {owning_constraint}")
+                else:
+                    # Drop other indexes using DROP INDEX.
+                    # Enclose the index name in backticks in case it has special characters.
+                    query = f"DROP INDEX `{name}`"
+                    print(f"Dropping index: {name}")
+                session.run(query)
+                print(f"Successfully dropped: {name}")
+        except Exception as e:
+            print(f"Error occurred while dropping index {name}: {e}")
+        finally:
+            driver.close()
+
+    def clear(self):
+        indexes = self.list_indexes()
+        print("Indices to be dropped: ", indexes)
+        for index_info in indexes:
+            self.drop_index(index_info)
+        print("Database cleared successfully!")
         
 
 class QueryEngine:
@@ -571,7 +625,6 @@ class QueryEngine:
     ]
 
     textQaTemplate = ChatPromptTemplate.from_messages(chatTextQaMsgs)
-    print("########## textQaTemplate:",textQaTemplate)
 
     successMsg = 'Query Engine was built successfully!'
 
@@ -701,11 +754,71 @@ class ChatbotAgents:
         """
         Initializes the `ChatbotAgents` object by loading the configuration file and setting up the chatbot agents.
         """
+        self.availableServices = ['huggingface','mistral']
+        self.configPath = configPath
         self.config = Config(configPath)
 
         self.getConfigs()
 
-        self.getModelConfigs(configPath)
+        self.getModelConfigs(self.configPath)
+
+        if self.service == self.availableServices[0]:
+            self.getHuggingFaceLlmAndEmbedding()
+        elif self.service == self.availableServices[1]:
+            self.getMistralLlmAndEmbedding()
+        else:
+            raise ValueError(f'service must be in ({self.availableServices})')
+        
+        Settings.llm = self.llm
+        Settings.embed_model = self.embedModel
+
+        self.updateQueryEngine()
+        # select the agent with the first available index type by default 
+        self.selectDefaultAgent()
+
+    def getModelConfigs(self,configPath):
+        """
+        retrieves the model configurations for the chatbot agents from the global configuration.
+        """
+        config = ConfigParser()
+        config.read(configPath)
+
+        self.service = config.get('llm-model', 'service')
+        self.llmModel = config.get(self.service, 'model_name')
+        self.embeddingModelName = config.get(self.service, 'embed_model')
+        self.embedDim = config.getint(self.service, 'embedDim')
+        self.apiKey = config.get(self.service, 'api_key')
+        self.max_new_tokens = config.getint('llm-model', 'max_new_tokens')
+        self.temperature = config.getfloat('llm-model', 'temperature')
+        self.do_sample = config.getboolean('llm-model', 'do_sample')
+        self.max_iterations = config.getint('agent', 'max_iterations')
+
+    def getMistralLlmAndEmbedding(self):
+        from llama_index.llms.mistralai import MistralAI
+        # from llama_index.embeddings.mistralai import MistralAIEmbedding
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+                
+        self.llm = MistralAI(
+            model=self.llmModel,
+            api_key=self.apiKey,
+            temperature=self.temperature,
+            max_tokens=self.max_new_tokens
+        )
+        # self.embedModel = MistralAIEmbedding(
+        #     model=self.embeddingModelName,
+        #     api_key=self.apiKey
+        # )
+        self.embedModel = HuggingFaceEmbedding(
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
+        )
+
+    def getHuggingFaceLlmAndEmbedding(self):
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+        from llama_index.llms.huggingface import HuggingFaceLLM
+        from transformers import BitsAndBytesConfig
+
         system_prompt = "<|SYSTEM|>\n" + systemMessage + "\n"
         query_wrapper_prompt = PromptTemplate(
             "<|USER|>\n{query_str}\n<|ASSISTANT|>\n"
@@ -733,16 +846,11 @@ class ChatbotAgents:
         )
 
         self.embedModel = HuggingFaceEmbedding(
-            model_name=self.embeddingModelName, max_length=self.embedDim
-
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
         )
-        Settings.llm = self.llm
-        Settings.embed_model = self.embedModel
-
-        self.updateQueryEngine()
-        # select the agent with the first available index type by default 
-        self.selectDefaultAgent()
-
+        
 
     def getConfigs(self):
         """
@@ -752,21 +860,6 @@ class ChatbotAgents:
         self.allIndices = self.config.indices['allindices']
         self.availableIndices = self.config.indices['availableindices']
         self.cutoffScore = self.config.retriever['cutoffscore']
-
-    def getModelConfigs(self,configPath):
-        """
-        retrieves the model configurations for the chatbot agents from the global configuration.
-        """
-        config = ConfigParser()
-        config.read(configPath)
-
-        self.embeddingModelName = config.get('embedding-model', 'model')
-        self.embedDim = config.getint('neo4j', 'embedDim')
-        self.llmModel = config.get('llm-model', 'model_name')
-        self.max_new_tokens = config.getint('llm-model', 'max_new_tokens')
-        self.temperature = config.getfloat('llm-model', 'temperature')
-        self.do_sample = config.getboolean('llm-model', 'do_sample')
-        self.max_iterations = config.getint('agent', 'max_iterations')
 
     def updateQueryEngine(self):
         self.queryEngine = QueryEngine(self.llm,self.embedModel,self.config)
@@ -896,8 +989,10 @@ class ChatbotAgents:
         try:
             self.queryEngine.index.storage.clear()
             self.queryEngine.index.fileManager.clear()
+            self.queryEngine.index.clear()
             return "Database and input directory were cleared successfully!"
-        except:
+        except Exception as e:
+            print("Exception occurred while clearing the database: ", e)
             return "Clearing the database and input directory failed!"
 
     def getFilesList(self):
@@ -938,7 +1033,7 @@ def vote(data: gr.LikeData):
 
 if __name__ == "__main__":
     
-    configPath = './Config/Config.cfg'
+    configPath = './Config/ConfigV7.cfg'
     config = Config(configPath)
 
     # Accessing loaded configuration
@@ -972,8 +1067,9 @@ if __name__ == "__main__":
         setChunkingMethod(config)
 
         if forceReindex:
+            chatbotAgents.queryEngine.index.clear()
             chatbotAgents.appendIndex(vectorTopK,contextTopK,maxSynonyms,pathDepth,cutoffScore)
-        
+
         chatbotAgents.selectAgent(defaultIndex)
         
 
