@@ -56,7 +56,7 @@ cp ./Config/ConfigLitScrTemp.cfg ./Config/ConfigLitScr.cfg
 
 ## Setting up Neo4j Docker container
 
-Run the following command. Make sure to use the config parameters under the `neo4j` section of the config file in the following command:
+Run the following command. Make sure the parameters used in the following command are consistent with the config parameters under the `neo4j` section of the config file.
 
 ```bash
 docker run --name neo4j-apoc \
