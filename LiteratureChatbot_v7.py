@@ -260,19 +260,23 @@ def setLogging(config):
 
 # Function to handle rate limits with exponential backoff
 def safeApiCall(call, enableLogging, *args, **kwargs):
-    maxAttempts = 10
+    maxAttempts = 20
     for attempt in range(maxAttempts):
         try:
             startTime = time.time()
             result = call(*args, **kwargs)
             endTime = time.time()
             if enableLogging:
-                logging.info(f"API call successful. Duration: {endTime - startTime:.2f} seconds.")
+                log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
+                logging.info(log_str)
+                print(log_str)
             return result
         except Exception as e:
             wait = 2 ** attempt + random.random()
             if enableLogging:
-                logging.warning(f"Rate limit hit. Waiting for {wait:.2f} seconds.")
+                log_str = f"Error occurred: {e}. Waiting for {wait:.2f} seconds."
+                logging.warning(log_str)
+                print(log_str)
             time.sleep(wait)
     raise Exception("API call failed after maximum number of retries")
 
@@ -443,7 +447,9 @@ class Index:
         self.allIndices = self.config.indices['allindices']
         self.enableLogging = self.config.general['enablelogging']
         self.max_new_tokens = self.config.llm_model['max_new_tokens']
-
+        self.url = self.config.neo4j['url1']
+        self.username = self.config.neo4j['username']
+        self.password = self.config.neo4j['password']
 
     def _buildVector(self, documents, batchSize=4):
         """
@@ -540,6 +546,54 @@ class Index:
         else:
             supportedTypes = ','.join(self.allIndices)
             raise Exception(f'indexType must be in ({supportedTypes})')
+    
+    def list_indexes(self):
+        driver = GraphDatabase.driver(self.url, auth=(self.username, self.password))
+        indexes = []
+        try:
+            with driver.session() as session:
+                result = session.run("SHOW INDEXES")
+                for record in result:
+                    indexes.append({
+                        "name": record["name"],
+                        "type": record["type"].upper(),
+                        "owningConstraint": record.get("owningConstraint")
+                    })
+        except Exception as e:
+            print(f"Error occurred while listing indexes: {e}")
+        finally:
+            driver.close()
+        return indexes
+
+    def drop_index(self, index_info):
+        name = index_info["name"]
+        idx_type = index_info["type"]
+        owning_constraint = index_info.get("owningConstraint")
+        driver = GraphDatabase.driver(self.url, auth=(self.username, self.password))
+        try:
+            with driver.session() as session:
+                if owning_constraint:
+                    # Drop constraint-backed indexes using DROP CONSTRAINT.
+                    query = f"DROP CONSTRAINT {owning_constraint}"
+                    print(f"Dropping constraint: {owning_constraint}")
+                else:
+                    # Drop other indexes using DROP INDEX.
+                    # Enclose the index name in backticks in case it has special characters.
+                    query = f"DROP INDEX `{name}`"
+                    print(f"Dropping index: {name}")
+                session.run(query)
+                print(f"Successfully dropped: {name}")
+        except Exception as e:
+            print(f"Error occurred while dropping index {name}: {e}")
+        finally:
+            driver.close()
+
+    def clear(self):
+        indexes = self.list_indexes()
+        print("Indices to be dropped: ", indexes)
+        for index_info in indexes:
+            self.drop_index(index_info)
+        print("Database cleared successfully!")
         
 
 class QueryEngine:
@@ -571,7 +625,6 @@ class QueryEngine:
     ]
 
     textQaTemplate = ChatPromptTemplate.from_messages(chatTextQaMsgs)
-    print("########## textQaTemplate:",textQaTemplate)
 
     successMsg = 'Query Engine was built successfully!'
 
@@ -723,21 +776,6 @@ class ChatbotAgents:
         # select the agent with the first available index type by default 
         self.selectDefaultAgent()
 
-    def getMistralLlmAndEmbedding(self):
-        from llama_index.llms.mistralai import MistralAI
-        from llama_index.embeddings.mistralai import MistralAIEmbedding
-                
-        self.llm = MistralAI(
-            model=self.llmModel,
-            api_key=self.apiKey,
-            temperature=self.temperature,
-            max_tokens=self.max_new_tokens
-        )
-        self.embedModel = MistralAIEmbedding(
-            model=self.embeddingModelName,
-            api_key=self.apiKey
-        )
-
     def getModelConfigs(self,configPath):
         """
         retrieves the model configurations for the chatbot agents from the global configuration.
@@ -754,6 +792,27 @@ class ChatbotAgents:
         self.temperature = config.getfloat('llm-model', 'temperature')
         self.do_sample = config.getboolean('llm-model', 'do_sample')
         self.max_iterations = config.getint('agent', 'max_iterations')
+
+    def getMistralLlmAndEmbedding(self):
+        from llama_index.llms.mistralai import MistralAI
+        # from llama_index.embeddings.mistralai import MistralAIEmbedding
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+                
+        self.llm = MistralAI(
+            model=self.llmModel,
+            api_key=self.apiKey,
+            temperature=self.temperature,
+            max_tokens=self.max_new_tokens
+        )
+        # self.embedModel = MistralAIEmbedding(
+        #     model=self.embeddingModelName,
+        #     api_key=self.apiKey
+        # )
+        self.embedModel = HuggingFaceEmbedding(
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
+        )
 
     def getHuggingFaceLlmAndEmbedding(self):
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -787,8 +846,9 @@ class ChatbotAgents:
         )
 
         self.embedModel = HuggingFaceEmbedding(
-            model_name=self.embeddingModelName, max_length=self.embedDim
-
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
         )
         
 
@@ -929,8 +989,10 @@ class ChatbotAgents:
         try:
             self.queryEngine.index.storage.clear()
             self.queryEngine.index.fileManager.clear()
+            self.queryEngine.index.clear()
             return "Database and input directory were cleared successfully!"
-        except:
+        except Exception as e:
+            print("Exception occurred while clearing the database: ", e)
             return "Clearing the database and input directory failed!"
 
     def getFilesList(self):
@@ -971,7 +1033,7 @@ def vote(data: gr.LikeData):
 
 if __name__ == "__main__":
     
-    configPath = './Config/ConfigNew.cfg'
+    configPath = './Config/ConfigV7.cfg'
     config = Config(configPath)
 
     # Accessing loaded configuration
@@ -1005,8 +1067,9 @@ if __name__ == "__main__":
         setChunkingMethod(config)
 
         if forceReindex:
+            chatbotAgents.queryEngine.index.clear()
             chatbotAgents.appendIndex(vectorTopK,contextTopK,maxSynonyms,pathDepth,cutoffScore)
-        
+
         chatbotAgents.selectAgent(defaultIndex)
         
 

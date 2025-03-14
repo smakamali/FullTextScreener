@@ -1,9 +1,12 @@
 #################################### appVersion = 0.7.0 ######################################
 # TODO: harmonize config management
+# TODO: make sure the questions are articulated independently
 ################################ Import Required Dependencies ################################
 import os
 import sys
+import gc
 import subprocess
+import multiprocessing
 import requests
 import shutil
 import logging
@@ -18,7 +21,6 @@ from tqdm import tqdm
 from neo4j import GraphDatabase
 import torch
 
-# Import only the vector index–related modules from llama_index
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -28,26 +30,23 @@ from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.core.utils import iter_batch
 from llama_index.core.agent import ReActAgent
-
-# Import vector store
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 
 # Append the root directory to path so that the modules can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from Modules.Readers import CustomCSVReader, CustomPDFReader
-from Modules.CitationExtractor import formatReferences
-from Modules.CitationExtractor import getAgentCitationsN4j as getAgentCitations
 from Modules.Tools import touch, deleteFolderContents, ensureFolderExists
 
 ################################ System Message ################################
 systemMessage = """
-You are a literature screening assistant.
-For each question you receive, provide an answer in JSON format with the following keys:
-- QuestionText: the original question text.
-- ShortAnswer: a concise answer.
-- Reasoning: your reasoning for providing the answer or any additional notes.
-- Evidence: quote the exact sentence(s) from the abstract that support your answer and reasoning. If evidence is not available, output "N/A".
+You are a literature screening assistant. You are designed to take a paper and a set of questions as input and provide answers, reasoning, and evidence from the text based on the format requested by the user.
+You always follow these rules:
+    Rule 1: Your main goal is to provide answers as accurately as possible, based on the instructions and context I have been given. 
+    Rule 2: If a question does not match the provided context or is outside the scope of the document, do not provide answers from my past knowledge. Simply reply "Unsure".
+    Rule 3: You always reply in a json format without any additional texts before or after the json.
+    Rule 4: If you encounter rate limits, you will retry as many times as you need to get the answer.
+    Rule 5: ATTENTION: You must always use the query engine tool to answer questions and ignore any previous conversation history.
 """
 
 ################################ Configurations ################################
@@ -220,7 +219,6 @@ def safeApiCall(call, enableLogging, *args, **kwargs):
             startTime = time.time()
             result = call(*args, **kwargs)
             endTime = time.time()
-            print("result",result)
             if enableLogging:
                 log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
                 logging.info(log_str)
@@ -499,6 +497,7 @@ class ChatbotAgents:
         self.temperature = config.getfloat('llm-model', 'temperature')
         self.do_sample = config.getboolean('llm-model', 'do_sample')
         self.max_iterations = config.getint('agent', 'max_iterations')
+        self.enable_agent = config.getboolean('agent', 'enable_agent')
     
     def getMistralLlmAndEmbedding(self):
         from llama_index.llms.mistralai import MistralAI
@@ -519,10 +518,11 @@ class ChatbotAgents:
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         from llama_index.llms.huggingface import HuggingFaceLLM
         from transformers import BitsAndBytesConfig
-        system_prompt = "<|SYSTEM|>\n" + systemMessage + "\n"
-        query_wrapper_prompt = PromptTemplate(
-            "<|USER|>\n{query_str}\n<|ASSISTANT|>\n"
-        )
+
+        # system_prompt = "<|SYSTEM|>\n" + systemMessage + "\n"
+        # query_wrapper_prompt = PromptTemplate(
+        #     "<|USER|>\n{query_str}\n<|ASSISTANT|>\n"
+        # )
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
@@ -533,12 +533,14 @@ class ChatbotAgents:
             context_window=10000,
             max_new_tokens=self.max_new_tokens,
             generate_kwargs={"temperature": self.temperature, "do_sample": self.do_sample},
-            system_prompt=system_prompt,
-            query_wrapper_prompt=query_wrapper_prompt,
+            # system_prompt=system_prompt,
+            # query_wrapper_prompt=query_wrapper_prompt,
             tokenizer_name=self.llmModel,
             model_name=self.llmModel,
             device_map="auto",
-            model_kwargs={"quantization_config": quantization_config},
+            model_kwargs={
+                "quantization_config": quantization_config,
+            },
         )
         self.embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName, 
@@ -563,7 +565,7 @@ class ChatbotAgents:
             query_engine=self.queryEngine.vectorQueryEngine,
             metadata=ToolMetadata(
                 name="vector_rag_query_engine",
-                description="Useful for answering queries based on the uploaded document.",
+                description="ATTENTION: Always use this tool to answer questions, ignore your memory or any prior knowledge.",
             ),
         )
         self.vectorAgent = ReActAgent.from_tools(
@@ -596,11 +598,14 @@ class ChatbotAgents:
     
     def chatbot(self, queryStr, history):
         # The query should include instructions to output a JSON with the required keys.
-        chatOutput = self.selectedAgent.chat(queryStr)
-        # Here we assume the LM returns a JSON-formatted string.
+        if self.enable_agent:
+            chatOutput = self.queryEngine.vectorQueryEngine.query(queryStr)
+        else:
+            chatOutput = self.selectedAgent.chat(queryStr, tool_choice="vector_rag_query_engine")
+        print("=======> chatOutput",chatOutput)
+        # Here we assume the LLM returns a JSON-formatted string.
         # Optionally, you might want to process references; for now we pass the raw output.
         output = chatOutput.response
-        print("Screening Answer:\n", output)
         return output
     
     def uploadFiles(self, files):
@@ -747,10 +752,6 @@ def cleanAndConvertJson(jsonText):
         return cleanedText
 
 
-import gc
-import multiprocessing
-# multiprocessing.set_start_method("spawn", force=True)
-
 def process_single_paper(row, questions, configPath, input_pdf_folder):
     """
     Process a single paper:
@@ -775,7 +776,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     pdf_path = os.path.join(input_pdf_folder, pdf_filename)
     if not os.path.exists(pdf_path):
         print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
-        return {paper_id: {"error": f"PDF file {pdf_path} not found."}}
+        screeningAgent.cleanup()
+        return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
     
     # Upload the PDF file.
     upload_msg = screeningAgent.uploadFiles([pdf_path])
@@ -785,17 +787,27 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     vectorTopK = screeningAgent.config.retriever['vectortopk']
     cutoffScore = screeningAgent.config.retriever['cutoffscore']
     enableLogging = screeningAgent.config.general['enablelogging']
-    screeningAgent.appendIndex(vectorTopK, cutoffScore)
+
+    try:
+        screeningAgent.appendIndex(vectorTopK, cutoffScore)
+    except Exception as e:
+        print(f"Error indexing PDF: {e}")
+        screeningAgent.cleanup()
+        return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
     
     # For each question, query the document.
     paper_answers = {}
     for q_key, q_text in questions.items():
         full_query = (
             q_text +
-            "\nPlease answer in English, in JSON format with the following keys: "
-            "'QuestionText', 'ShortAnswer', 'Reasoning', 'Evidence'. "
-            "For Evidence, quote the exact sentence(s) from the abstract that support your answer. "
-            "If evidence is not available, output 'N/A'."
+            """\n
+            ATTENTION: When answering questions, always use the query engine tool and do not rely on your internal memory.
+            Include all valid short answers in your query string when using the query engine tool.
+            Answer in English, in the following JSON format:
+            QuestionText: ...,
+                ShortAnswer: one of the valid short answers,
+                Reasoning: specify your reasoning or any additional notes for providing the answer,
+                Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
         )
         print(f"Querying for question '{q_key}': {q_text}")
         answer = safeApiCall(
@@ -804,6 +816,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
             queryStr=full_query,
             history=None
         )
+
         parsed_answer = cleanAndConvertJson(answer)
         paper_answers[q_key] = parsed_answer
 
@@ -813,7 +826,9 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     gc.collect()
     torch.cuda.empty_cache()
     
-    return {paper_id: paper_answers}
+    # return {paper_id: paper_answers}
+    return {paper_id: {"metadata": row, "answers": paper_answers}}
+
 
 def literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path):
     """
@@ -822,7 +837,12 @@ def literature_screening(metadata_csv_path, questions, configPath, input_pdf_fol
       - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
         uploads and indexes the PDF, then answers each question.
     Finally, all results are saved in a single JSON file.
+    Additionally, logs the total processing time and average time per paper.
     """
+    import time
+
+    start_time = time.time()
+
     results = {}
     rows = []
     with open(metadata_csv_path, newline='', encoding='utf-8-sig') as csvfile:
@@ -844,76 +864,13 @@ def literature_screening(metadata_csv_path, questions, configPath, input_pdf_fol
         json.dump(results, outfile, indent=2)
     print(f"\nScreening results saved to {output_json_path}")
 
+    end_time = time.time()
+    total_time = end_time - start_time
+    avg_time_per_paper = total_time / len(rows) if rows else 0
 
-# def literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path):
-#     """
-#     For each paper in the metadata CSV:
-#       - Instantiate a new screeningAgent (ChatbotAgents) to refresh memory.
-#       - Reset the database and index store.
-#       - Upload and index the corresponding PDF.
-#       - Iterate over the questions and query the indexed document.
-#       - Capture each answer in JSON format with keys: 
-#             "QuestionText", "ShortAnswer", "Reasoning", "Evidence".
-#     Finally, save all results in a single JSON file.
-#     """
-#     results = {}
-#     with open(metadata_csv_path, newline='', encoding='utf-8-sig') as csvfile:
-#         reader = csv.DictReader(csvfile)
-#         for row in reader:
-#             paper_id = row["paper_id"]
-#             pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
-#             print(f"\nProcessing paper {paper_id} with PDF file: {pdf_filename}")
-            
-#             # Instantiate a new screeningAgent for each paper to refresh memory.
-#             screeningAgent = ChatbotAgents(configPath=configPath)
-#             screeningAgent.selectDefaultAgent()
-            
-#             # Reset the database and clear any uploaded files.
-#             screeningAgent.clearFiles()
-            
-#             # Build the full path to the PDF file (assumed to be in input_pdf_folder)
-#             pdf_path = os.path.join(input_pdf_folder, pdf_filename)
-#             if not os.path.exists(pdf_path):
-#                 print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
-#                 continue
-            
-#             # Upload the PDF file
-#             upload_msg = screeningAgent.uploadFiles([pdf_path])
-#             print(upload_msg)
-            
-#             # Index the uploaded PDF using current vector retrieval settings.
-#             vectorTopK = screeningAgent.config.retriever['vectortopk']
-#             cutoffScore = screeningAgent.config.retriever['cutoffscore']
-#             enableLogging = screeningAgent.config.general['enablelogging']
-#             screeningAgent.appendIndex(vectorTopK, cutoffScore)
-            
-#             # For each question, query the document.
-#             paper_answers = {}
-#             for q_key, q_text in questions.items():
-#                 full_query = (
-#                     q_text +
-#                     "\nPlease answer in English, in JSON format with the following keys: "
-#                     "'QuestionText', 'ShortAnswer', 'Reasoning', 'Evidence'. "
-#                     "For Evidence, quote the exact sentence(s) from the abstract that support your answer. "
-#                     "If evidence is not available, output 'N/A'."
-#                 )
-#                 print(f"Querying for question '{q_key}': {q_text}")
-#                 # answer = screeningAgent.chatbot(full_query, history=None)
-#                 answer = safeApiCall(
-#                     screeningAgent.chatbot,
-#                     enableLogging=enableLogging,
-#                     queryStr=full_query,
-#                     history=None
-#                 )
-#                 parsed_answer = cleanAndConvertJson(answer)
-#                 paper_answers[q_key] = parsed_answer
-            
-#             results[paper_id] = paper_answers
+    print(f"Total processing time: {total_time:.2f} seconds")
+    print(f"Average time per paper: {avg_time_per_paper:.2f} seconds")
 
-#     # Write results to a JSON file.
-#     with open(output_json_path, "w", encoding="utf-8") as outfile:
-#         json.dump(results, outfile, indent=2)
-#     print(f"\nScreening results saved to {output_json_path}")
 
 ################################ Main Execution ################################
 if __name__ == "__main__":
@@ -929,7 +886,6 @@ if __name__ == "__main__":
 
     # Extract some default parameters
     appVersion = config.general['appversion']
-    # forceReindex = config.general['forcereindex']
 
     logger = setLogging(config)
 
@@ -948,10 +904,33 @@ if __name__ == "__main__":
         
         # Define the set of questions as a key-value dictionary.
         questions = {
-            "Q1": "Does the study provide any new definitions for robustness?",
-            "Q2": "How does the study define robustness or risk (implicitly or explicitly)?",
-            "Q3": "What is the scope of the definition? e.g. join ordering,cardinality estimation, cost model, plan, workload DBMS, ML models",
-            "Q4": "Does the study have a significant contribution to the theory?",
+            "Q1": "Does the study provide any new definitions for robustness? (Valid short answers: Yes, No, Unsure)",
+            "Q2": "How does the study define robustness or risk (implicitly or explicitly)? (Valid short answers: concise definition(s) of robustness, Not provided, Not Applicable, Unsure)",
+            "Q3": "What is the scope of the definition? (Valid short answers: join ordering, cardinality estimation, cost model, plan optimization, workload management, DBMS (end-to-end), ML models, Unsure)",
+            "Q4": "Does the study address the problem of robustness in the context of query optimization? (Valid short answers: Yes, No, Unsure)",
+            "Q5": "Does the study have a significant contribution to the theory? (Valid short answers: Yes, No, Unsure)",
+            "Q6": "Does the study include a significant experimental evaluation? (Valid short answers: Yes, No, Unsure)",
+            "Q7": "How does the study evaluate robustness and its improvements? (Valid short answers: experimental evaluation, theoretical evaluation, Not provided, Not Applicable, Unsure)",
+            "Q8": "Does the study address the problem of robustness in the context of query optimization? (Valid short answers: Yes, No, Unsure)",
+            "Q9": "How does the study improve robustness? (Valid short answers: a summary of the proposed approach, Not provided, Not Applicable, Unsure)",
+            "Q10": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
+            "Q11": "Which benchmarks are used in the experimental evaluations? (Valid short answers: a list of the benchmarks used, Not provided, Not Applicable, Unsure)",
+            "Q12": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
+            "Q13": "What characteristics are controlled in data/query generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
+            "Q14": "Are the experiments designed to evaluate robustness specifically? (Valid short answers: Yes, No, Unsure)",
+            "Q15": "Does the study use machine learning in its proposed approach? (Valid short answers: Yes, No, Unsure)",
+            "Q16": "What type of machine learning is used? (Valid short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement learning, Other, Not provided, Not Applicable, Unsure)",
+            "Q17": "To which category does the ML approach belong? (Valid short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Not Applicable, Unsure)",
+            "Q18": "Does the approach use deep learning? (Valid short answers: Yes, No, Unsure)",
+            "Q19": "Does the approach use transfer learning? (Valid short answers: Yes, No, Unsure)",
+            "Q20": "How does the study generate its training data? (Valid short answers: a description of the data generation process, Not provided, Not Applicable, Unsure)",
+            "Q21": "How does the study encode the samples? (Valid short answers: a description of the encoding process, Not provided, Not Applicable, Unsure)",
+            "Q22": "Does the study account for predictive uncertainties? (Valid short answers: Yes, No, Unsure)",
+            "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
+            "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
+            "Q25": "What model architecture is used? (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Other ... , Not provided, Not Applicable, Unsure)",
+            "Q26": "Was robustness improvement the guiding force for designing the model or the encoding scheme? (Valid short answers: Yes, No, Unsure)",
+            "Q27": "Does it use any other techniques for improving robustness? (Valid short answers: a list of the techniques used, Not provided, Not Applicable, Unsure)"
         }
         
         # Run the literature screening process.
