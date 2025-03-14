@@ -190,7 +190,7 @@ breakpointPercentileThreshold = 95
 
 The tool expects the following input data:
 
-1. **Metadata CSV File**: A CSV file containing metadata about the papers to be analyzed. The file must include:
+1. **Metadata CSV File**: A CSV file containing metadata about the papers to be analyzed, stored in `metadataFile` path. The file must include:
    - `paper_id`: A unique identifier for each paper
    - `pdf_filename`: The name of the PDF file associated with the paper
 
