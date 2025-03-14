@@ -1,4 +1,4 @@
-#################################### appVersion = 0.7.0 ######################################
+#################################### appVersion = 0.8.0 ######################################
 # TODO: harmonize config management
 # TODO: make sure the questions are articulated independently
 ################################ Import Required Dependencies ################################
