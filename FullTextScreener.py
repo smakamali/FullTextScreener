@@ -871,7 +871,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     else:
         raise ValueError(f"Unsupported file type: {metadata_file_path}")
     
-    rows= rows[0:2]
+    # rows= rows[0:2]
 
     # Use a separate process per paper.
     with multiprocessing.Pool(processes=1) as pool:
@@ -956,32 +956,32 @@ if __name__ == "__main__":
                 )
                 """,
             "Q1": "Does the study provide any new definitions for robustness? (Valid short answers: Yes, No, Unsure)",
-            # "Q2": "How does the study define robustness or risk (implicitly or explicitly)? (Valid short answers: concise definition(s) of robustness, Not provided, Not Applicable, Unsure)",
-            # "Q3": "If a new definition is provided, to which scope does it apply? (Valid short answers: join ordering, cardinality estimation, cost model, plan optimization, workload management, DBMS (end-to-end), ML models, No Definitions Provided, Unsure)",
-            # "Q4": "Does the study address the problem of robustness in the context of query optimization and processing? (Valid short answers: Yes, No, Unsure)",
-            # "Q5": "Does the study have a significant contribution to the theory? (Valid short answers: Yes, No, Unsure)",
-            # "Q6": "Does the study include a significant experimental evaluation? (Valid short answers: Yes, No, Unsure)",
-            # "Q7": "How does the study evaluate robustness and its improvements? (Valid short answers: experimental evaluation, theoretical evaluation, Not provided, Not Applicable, Unsure)",
-            # # "Q8": "Does the study address the problem of robustness in the context of query optimization? (Valid short answers: Yes, No, Unsure)",
-            # "Q9": "How does the study improve robustness? (Valid short answers: a summary of the proposed approach, Not provided, Not Applicable, Unsure)",
-            # "Q10": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
-            # "Q11": "Which benchmarks are used in the experimental evaluations? (Valid short answers: [a list of the benchmarks used], Not provided, Not Applicable, Unsure), example benchamrks: JOB, JOB-Ext, JOB-Light, TPC-DS, TPC-H, Stack, CEB, DSB, etc.",
-            # "Q12": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
-            # "Q13": "What characteristics are controlled in trianing data, query, or plan generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
-            # "Q14": "Are the experiments designed to evaluate robustness specifically? (Valid short answers: Yes, No, Unsure)",
-            # "Q15": "Does the study use machine learning in its proposed approach? (Valid short answers: Yes, No, Unsure)",
-            # "Q16": "What type of machine learning is used? (Valid short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement learning, Other, Not provided, Not Applicable, Unsure)",
-            # "Q17": "To which category does the ML approach belong? (Valid short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Not Applicable, Unsure)",
-            # "Q18": "Does the approach use deep learning? (Valid short answers: Yes, No, Unsure)",
-            # "Q19": "Does the approach use transfer learning? (Valid short answers: Yes, No, Unsure)",
-            # "Q20": "How does the study generate its training data? (Valid short answers: a description of the data generation process, Not provided, Not Applicable, Unsure)",
-            # "Q21": "How does the study encode the samples? (Valid short answers: a description of the encoding process, Not provided, Not Applicable, Unsure)",
-            # "Q22": "Does the study account for predictive uncertainties? (Valid short answers: Yes, No, Unsure)",
-            # "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
-            # "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
-            # "Q25": "What model architecture is used in the proposed method? Do not include model architectures used only as a baseline. (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Transformer (Trm), Other, Not provided, Not Applicable, Unsure)",
-            # "Q26": "Was enhancing robustness the primary motivation behind the model or encoding scheme design? (Valid short answers: Yes, No, Unsure)",
-            # "Q27": "Does it use any other techniques for improving robustness? (Valid short answers: a list of the techniques used, Not provided, Not Applicable, Unsure)"
+            "Q2": "How does the study define robustness or risk (implicitly or explicitly)? (Valid short answers: concise definition(s) of robustness, Not provided, Not Applicable, Unsure)",
+            "Q3": "If a new definition is provided, to which scope does it apply? (Valid short answers: join ordering, cardinality estimation, cost model, plan optimization, workload management, DBMS (end-to-end), ML models, No Definitions Provided, Unsure)",
+            "Q4": "Does the study address the problem of robustness in the context of query optimization and processing? (Valid short answers: Yes, No, Unsure)",
+            "Q5": "Does the study have a significant contribution to the theory? (Valid short answers: Yes, No, Unsure)",
+            "Q6": "Does the study include a significant experimental evaluation? (Valid short answers: Yes, No, Unsure)",
+            "Q7": "How does the study evaluate robustness and its improvements? (Valid short answers: experimental evaluation, theoretical evaluation, Not provided, Not Applicable, Unsure)",
+            # "Q8": "Does the study address the problem of robustness in the context of query optimization? (Valid short answers: Yes, No, Unsure)",
+            "Q9": "How does the study improve robustness? (Valid short answers: a summary of the proposed approach, Not provided, Not Applicable, Unsure)",
+            "Q10": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
+            "Q11": "Which benchmarks are used in the experimental evaluations? (Valid short answers: [a list of the benchmarks used], Not provided, Not Applicable, Unsure), example benchamrks: JOB, JOB-Ext, JOB-Light, TPC-DS, TPC-H, Stack, CEB, DSB, etc.",
+            "Q12": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
+            "Q13": "What characteristics are controlled in trianing data, query, or plan generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
+            "Q14": "Are the experiments designed to evaluate robustness specifically? (Valid short answers: Yes, No, Unsure)",
+            "Q15": "Does the study use machine learning in its proposed approach? (Valid short answers: Yes, No, Unsure)",
+            "Q16": "What type of machine learning is used? (Valid short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement learning, Other, Not provided, Not Applicable, Unsure)",
+            "Q17": "To which category does the ML approach belong? (Valid short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Not Applicable, Unsure)",
+            "Q18": "Does the approach use deep learning? (Valid short answers: Yes, No, Unsure)",
+            "Q19": "Does the approach use transfer learning? (Valid short answers: Yes, No, Unsure)",
+            "Q20": "How does the study generate its training data? (Valid short answers: a description of the data generation process, Not provided, Not Applicable, Unsure)",
+            "Q21": "How does the study encode the samples? (Valid short answers: a description of the encoding process, Not provided, Not Applicable, Unsure)",
+            "Q22": "Does the study account for predictive uncertainties? (Valid short answers: Yes, No, Unsure)",
+            "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
+            "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
+            "Q25": "What model architecture is used in the proposed method? Do not include model architectures used only as a baseline. (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Transformer (Trm), Other, Not provided, Not Applicable, Unsure)",
+            "Q26": "Was enhancing robustness the primary motivation behind the model or encoding scheme design? (Valid short answers: Yes, No, Unsure)",
+            "Q27": "Does it use any other techniques for improving robustness? (Valid short answers: a list of the techniques used, Not provided, Not Applicable, Unsure)"
         }
         
         # Run the literature screening process.
