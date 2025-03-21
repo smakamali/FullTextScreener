@@ -25,3 +25,6 @@ sentencepiece
 mistralai
 llama-index-llms-mistralai
 llama-index-embeddings-mistralai
+pandas
+openpyxl
+pdfplumber

@@ -1,4 +1,4 @@
-#################################### appVersion = 0.8.0 ######################################
+#################################### appVersion = 0.7.0 ######################################
 # TODO: harmonize config management
 # TODO: make sure the questions are articulated independently
 ################################ Import Required Dependencies ################################
@@ -14,6 +14,7 @@ import time
 import random
 import json
 import csv
+import pandas as pd
 from configparser import ConfigParser
 from urllib.parse import urlparse
 import docker
@@ -84,7 +85,16 @@ class Config:
         except ValueError:
             return value
 
-################################ Helper Functions ################################
+################################ Helper Functions and classes ################################
+import json
+import datetime
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return super().default(obj)
+    
 def setChunkingMethod(config):
     # Configure how PDFs are chunked (either "semantic" or "static")
     nodeParserType = config.nodeparser['nodeparsertype']
@@ -222,7 +232,7 @@ def safeApiCall(call, enableLogging, *args, **kwargs):
             if enableLogging:
                 log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
                 logging.info(log_str)
-                print(log_str)
+                # print(log_str)
             return result
         except Exception as e:
             wait = 2 ** attempt + random.random()
@@ -599,10 +609,10 @@ class ChatbotAgents:
     def chatbot(self, queryStr, history):
         # The query should include instructions to output a JSON with the required keys.
         if self.enable_agent:
-            chatOutput = self.queryEngine.vectorQueryEngine.query(queryStr)
-        else:
             chatOutput = self.selectedAgent.chat(queryStr, tool_choice="vector_rag_query_engine")
-        print("=======> chatOutput",chatOutput)
+        else:
+            chatOutput = self.queryEngine.vectorQueryEngine.query(queryStr)
+        # print("=======> chatOutput",chatOutput)
         # Here we assume the LLM returns a JSON-formatted string.
         # Optionally, you might want to process references; for now we pass the raw output.
         output = chatOutput.response
@@ -761,7 +771,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
       - Iterate over the questions and query the indexed document.
       - Return a dictionary mapping paper_id to its answers.
     """
-    paper_id = row["paper_id"]
+    paper_id = int(row["paper_id"])
     pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
     print(f"\nProcessing paper {paper_id} with PDF file: {pdf_filename}")
     
@@ -778,6 +788,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
         print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
         screeningAgent.cleanup()
         return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
+    # else:
+    #     return {paper_id: {"metadata": row, "answers": {"sucess": f"PDF file {pdf_path} was found."}}}
     
     # Upload the PDF file.
     upload_msg = screeningAgent.uploadFiles([pdf_path])
@@ -797,7 +809,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     
     # For each question, query the document.
     paper_answers = {}
-    for q_key, q_text in questions.items():
+    for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
         full_query = (
             q_text +
             """\n
@@ -809,7 +821,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
                 Reasoning: specify your reasoning or any additional notes for providing the answer,
                 Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
         )
-        print(f"Querying for question '{q_key}': {q_text}")
+        # print(f"Querying for question '{q_key}': {q_text}")
         answer = safeApiCall(
             screeningAgent.chatbot,
             enableLogging=enableLogging,
@@ -830,9 +842,9 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     return {paper_id: {"metadata": row, "answers": paper_answers}}
 
 
-def literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path):
+def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
     """
-    For each paper in the metadata CSV:
+    For each paper in the metadata file (csv or xlsx):
       - Process the paper in a separate subprocess.
       - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
         uploads and indexes the PDF, then answers each question.
@@ -845,11 +857,21 @@ def literature_screening(metadata_csv_path, questions, configPath, input_pdf_fol
 
     results = {}
     rows = []
-    with open(metadata_csv_path, newline='', encoding='utf-8-sig') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            rows.append(row)
+    if metadata_file_path.endswith('.csv'):
+        with open(metadata_file_path, newline='', encoding='utf-8-sig') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                rows.append(row)
+    elif metadata_file_path.endswith('.xlsx'):
+        df = pd.read_excel(metadata_file_path)
+        df['paper_id'] = df['paper_id'].astype(int)
+        df.fillna('', inplace=True)
+        rows = df.to_dict('records')
+    else:
+        raise ValueError(f"Unsupported file type: {metadata_file_path}")
     
+    # rows= rows[100:105]
+
     # Use a separate process per paper.
     with multiprocessing.Pool(processes=1) as pool:
         results_list = pool.starmap(
@@ -860,8 +882,10 @@ def literature_screening(metadata_csv_path, questions, configPath, input_pdf_fol
     for res in results_list:
         results.update(res)
     
+    print(f"Processing complete for {len(results)} papers.")
+
     with open(output_json_path, "w", encoding="utf-8") as outfile:
-        json.dump(results, outfile, indent=2)
+        json.dump(results, outfile, indent=2, cls=DateTimeEncoder)
     print(f"\nScreening results saved to {output_json_path}")
 
     end_time = time.time()
@@ -875,7 +899,7 @@ def literature_screening(metadata_csv_path, questions, configPath, input_pdf_fol
 ################################ Main Execution ################################
 if __name__ == "__main__":
     # Path to the config file
-    configPath = './Config/ConfigLitScr.cfg'
+    configPath = './Config/ConfigLitScrInUse.cfg'
     config = Config(configPath)
     print("Loaded configuration:")
     print(config.neo4j)
@@ -904,6 +928,24 @@ if __name__ == "__main__":
         
         # Define the set of questions as a key-value dictionary.
         questions = {
+            "Q0": """Which two categories (primary and secondary) better describe the scope of the proposed robustness technique? (valid short answer: 
+            { primary: <primary category>, secondary: <secondary category> }
+            Valid categories: (
+            Discovery-based, Reoptimization, Adaptive Execution, Adaptive Access Operators, Learned Cost, Learned Plan Optimization, Learned Statistics, non-ML Statistics, Robustness Quantification, Not Applicable, Unsure)
+            Category Definitions:
+                (
+                discovery-based: methods based on plan diagram exploration and reduction
+                reoptimization: methods that reoptimize plans based on query execution feedback, that use a traditional optimizer to pick a plan, then react to estimation errors and resulting suboptimality during execution to reoptimize the plan as needed
+                adaptive execution: Query processing techniques that reduce sensitivity to cardinality misestimation, bad join orders, and suboptimal query plans using various strategies at run-time, such as lookahead information passing
+                adaptive access operators: Proposes robust plan operators (either access or join) that try to mimic the behavior of the optimal operator at any point depending on the parameter values
+                learned cost: methods that learn cost models from query execution feedback using machine learning
+                learned plan optimization: methods that focus on improving join order selection or plan optimization using machine learning, deep reinforcement learning, or other AI methods (e.g., genetic algorithms, ant colony optimization, particle swarm optimization, etc.)
+                Learned statistics: methods that learn statistics such as cardinalities from query execution feedback using machine learning
+                non-ML statistics: methods that improve statistics such as cardinalities without machine learning (e.g. histograms)
+                robustness quantification: methods that quantify the robustness of plans or cost estimates
+                Not Applicable: the study does not directly address the robustness problem in query optimization and processing
+                )
+                """,
             "Q1": "Does the study provide any new definitions for robustness? (Valid short answers: Yes, No, Unsure)",
             "Q2": "How does the study define robustness or risk (implicitly or explicitly)? (Valid short answers: concise definition(s) of robustness, Not provided, Not Applicable, Unsure)",
             "Q3": "What is the scope of the definition? (Valid short answers: join ordering, cardinality estimation, cost model, plan optimization, workload management, DBMS (end-to-end), ML models, Unsure)",
@@ -916,7 +958,7 @@ if __name__ == "__main__":
             "Q10": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
             "Q11": "Which benchmarks are used in the experimental evaluations? (Valid short answers: a list of the benchmarks used, Not provided, Not Applicable, Unsure)",
             "Q12": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
-            "Q13": "What characteristics are controlled in data/query generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
+            "Q13": "What characteristics are controlled in trianing data, query, or plan generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
             "Q14": "Are the experiments designed to evaluate robustness specifically? (Valid short answers: Yes, No, Unsure)",
             "Q15": "Does the study use machine learning in its proposed approach? (Valid short answers: Yes, No, Unsure)",
             "Q16": "What type of machine learning is used? (Valid short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement learning, Other, Not provided, Not Applicable, Unsure)",
@@ -929,7 +971,7 @@ if __name__ == "__main__":
             "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
             "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
             "Q25": "What model architecture is used? (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Other ... , Not provided, Not Applicable, Unsure)",
-            "Q26": "Was robustness improvement the guiding force for designing the model or the encoding scheme? (Valid short answers: Yes, No, Unsure)",
+            "Q26": "Was enhancing robustness the primary motivation behind the model or encoding scheme design? (Valid short answers: Yes, No, Unsure)",
             "Q27": "Does it use any other techniques for improving robustness? (Valid short answers: a list of the techniques used, Not provided, Not Applicable, Unsure)"
         }
         
