@@ -913,7 +913,7 @@ if __name__ == "__main__":
     appVersion = config.general['appversion']
     huggingFaceToken = config.huggingface['api_key']
 
-    # loging to huggingface
+    # logging into huggingface
     try:
         huggingface_hub.login(huggingFaceToken)
         print("Successfully logged into huggingface!")
