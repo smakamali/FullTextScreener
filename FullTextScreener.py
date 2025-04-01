@@ -512,18 +512,25 @@ class ChatbotAgents:
     
     def getMistralLlmAndEmbedding(self):
         from llama_index.llms.mistralai import MistralAI
-        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         self.llm = MistralAI(
             model=self.llmModel,
             api_key=self.apiKey,
             temperature=self.temperature,
             max_tokens=self.max_new_tokens
         )
-        self.embedModel = HuggingFaceEmbedding(
-            model_name=self.embeddingModelName, 
-            max_length=self.embedDim,
-            trust_remote_code=True
-        )
+        if 'mistral' in self.embeddingModelName:
+            from llama_index.embeddings.mistralai import MistralAIEmbedding
+            self.embedModel = MistralAIEmbedding(
+                model=self.embeddingModelName,
+                api_key=self.apiKey
+            )
+        else:
+            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+            self.embedModel = HuggingFaceEmbedding(
+                model_name=self.embeddingModelName, 
+                max_length=self.embedDim,
+                trust_remote_code=True
+            )
     
     def getHuggingFaceLlmAndEmbedding(self):
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
