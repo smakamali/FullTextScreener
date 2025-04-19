@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# VSCode settings
+.vscode/
+
+# Logs
+*.log
+
+# Environment files
+.env
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Cache and model weights
+*.cache/
+*.pt
+*.h5
+
+# neo4j
+neo4j_vol1/
+
+# output
+output/
+Config/ConfigLitScr.cfg
