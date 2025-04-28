@@ -16,7 +16,7 @@ import json
 import csv
 import pandas as pd
 from configparser import ConfigParser
-from urllib.parse import urlparse 
+from urllib.parse import urlparse
 import docker
 from tqdm import tqdm
 from neo4j import GraphDatabase
@@ -624,7 +624,6 @@ class ChatbotAgents:
         # Here we assume the LLM returns a JSON-formatted string.
         # Optionally, you might want to process references; for now we pass the raw output.
         output = chatOutput.response
-
         return output
     
     def uploadFiles(self, files):
@@ -851,26 +850,27 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     return {paper_id: {"metadata": row, "answers": paper_answers}}
 
 
-def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
+
+def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path, append_mode=False):
     """
     For each paper in the metadata file (csv or xlsx):
       - Process the paper in a separate subprocess.
-      - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
+      - Each per-paper process creates a fresh ChatbotAgents instance, resets the state,
         uploads and indexes the PDF, then answers each question.
-    Finally, all results are saved in a single JSON file.
-    Additionally, logs the total processing time and average time per paper.
+    Depending on `append_mode`:
+      - If False: overwrite the output file
+      - If True: append new results to existing data
     """
-    import time
-
     start_time = time.time()
 
     results = {}
     rows = []
+    
+    # Read the metadata file
     if metadata_file_path.endswith('.csv'):
         with open(metadata_file_path, newline='', encoding='utf-8-sig') as csvfile:
             reader = csv.DictReader(csvfile)
-            for row in reader:
-                rows.append(row)
+            rows = list(reader)
     elif metadata_file_path.endswith('.xlsx'):
         df = pd.read_excel(metadata_file_path)
         df['paper_id'] = df['paper_id'].astype(int)
@@ -878,23 +878,40 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         rows = df.to_dict('records')
     else:
         raise ValueError(f"Unsupported file type: {metadata_file_path}")
-    
-    # rows= rows[0:2]
 
-    # Use a separate process per paper.
+    # Process each paper in a separate process
     with multiprocessing.Pool(processes=1) as pool:
         results_list = pool.starmap(
             process_single_paper,
             [(row, questions, configPath, input_pdf_folder) for row in rows]
         )
-    
+
     for res in results_list:
         results.update(res)
-    
+
     print(f"Processing complete for {len(results)} papers.")
 
+    # Load existing data if append_mode is enabled
+    if append_mode and os.path.exists(output_json_path):
+        with open(output_json_path, "r", encoding="utf-8") as infile:
+            try:
+                existing_data = json.load(infile)
+            except json.JSONDecodeError:
+                existing_data = []
+        
+        if not isinstance(existing_data, list):
+            existing_data = [existing_data]
+        
+        existing_data.append(results)
+
+        data_to_save = existing_data
+    else:
+        data_to_save = results
+
+    # Save output
     with open(output_json_path, "w", encoding="utf-8") as outfile:
-        json.dump(results, outfile, indent=2, cls=DateTimeEncoder)
+        json.dump(data_to_save, outfile, indent=2, cls=DateTimeEncoder)
+
     print(f"\nScreening results saved to {output_json_path}")
 
     end_time = time.time()
@@ -904,11 +921,11 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     print(f"Total processing time: {total_time:.2f} seconds")
     print(f"Average time per paper: {avg_time_per_paper:.2f} seconds")
 
-
+    
 ################################ Main Execution ################################
 if __name__ == "__main__":
     # Path to the config file
-    configPath = './Config/ConfigLitScr.cfg'
+    configPath = './Config/ConfigLitScrInUse.cfg'
     config = Config(configPath)
     print("Loaded configuration:")
     print(config.neo4j)
@@ -962,7 +979,34 @@ if __name__ == "__main__":
                 robustness quantification: methods that quantify the robustness of plans or cost estimates
                 Not Applicable: the study does not directly address the robustness problem in query optimization and processing
                 )
-                """
+                """,
+            "Q1": "Does the study provide any new definitions for robustness? (Valid short answers: Yes, No, Unsure)",
+            "Q2": "How does the study define robustness or risk (implicitly or explicitly)? (Valid short answers: concise definition(s) of robustness, Not provided, Not Applicable, Unsure)",
+            "Q3": "If a new definition is provided, to which scope does it apply? (Valid short answers: join ordering, cardinality estimation, cost model, plan optimization, workload management, DBMS (end-to-end), ML models, No Definitions Provided, Unsure)",
+            "Q4": "Does the study address the problem of robustness in the context of query optimization and processing? (Valid short answers: Yes, No, Unsure)",
+            "Q5": "Does the study have a significant contribution to the theory? (Valid short answers: Yes, No, Unsure)",
+            "Q6": "Does the study include a significant experimental evaluation? (Valid short answers: Yes, No, Unsure)",
+            "Q7": "How does the study evaluate robustness and its improvements? (Valid short answers: experimental evaluation, theoretical evaluation, Not provided, Not Applicable, Unsure)",
+            # "Q8": "Does the study address the problem of robustness in the context of query optimization? (Valid short answers: Yes, No, Unsure)",
+            "Q9": "How does the study improve robustness? (Valid short answers: a summary of the proposed approach, Not provided, Not Applicable, Unsure)",
+            "Q10": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
+            "Q11": "Which benchmarks are used in the experimental evaluations? (Valid short answers: [a list of the benchmarks used], Not provided, Not Applicable, Unsure), example benchamrks: JOB, JOB-Ext, JOB-Light, TPC-DS, TPC-H, Stack, CEB, DSB, etc.",
+            "Q12": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
+            "Q13": "What characteristics are controlled in trianing data, query, or plan generation? (Valid short answers: a list of the characteristics controlled, Not provided, Not Applicable, Unsure)",
+            "Q14": "Are the experiments designed to evaluate robustness specifically? (Valid short answers: Yes, No, Unsure)",
+            "Q15": "Does the study use machine learning in its proposed approach? (Valid short answers: Yes, No, Unsure)",
+            "Q16": "What type of machine learning is used? (Valid short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement learning, Other, Not provided, Not Applicable, Unsure)",
+            "Q17": "To which category does the ML approach belong? (Valid short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Not Applicable, Unsure)",
+            "Q18": "Does the approach use deep learning? (Valid short answers: Yes, No, Unsure)",
+            "Q19": "Does the approach use transfer learning? (Valid short answers: Yes, No, Unsure)",
+            "Q20": "How does the study generate its training data? (Valid short answers: a description of the data generation process, Not provided, Not Applicable, Unsure)",
+            "Q21": "How does the study encode the samples? (Valid short answers: a description of the encoding process, Not provided, Not Applicable, Unsure)",
+            "Q22": "Does the study account for predictive uncertainties? (Valid short answers: Yes, No, Unsure)",
+            "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
+            "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
+            "Q25": "What model architecture is used in the proposed method? Do not include model architectures used only as a baseline. (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Transformer (Trm), Other, Not provided, Not Applicable, Unsure)",
+            "Q26": "Was enhancing robustness the primary motivation behind the model or encoding scheme design? (Valid short answers: Yes, No, Unsure)",
+            "Q27": "Does it use any other techniques for improving robustness? (Valid short answers: a list of the techniques used, Not provided, Not Applicable, Unsure)"
         }
         
         # Run the literature screening process.

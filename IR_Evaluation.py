@@ -1,162 +1,230 @@
-from scipy.stats import kendalltau
-import numpy as np
-from sentence_transformers import util
-from FullTextScreener import Config, QueryEngine
-from llama_index.core.settings import Settings
-from datasets import load_dataset
-from llama_index.llms.mistralai import MistralAI
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-import json
+# ir_eval_multi.py
+# --------------------------------------------------------
+# Evaluate the same corpus with many embedding models.
+# --------------------------------------------------------
+import os, json, csv, torch, jsonlines
+from collections import defaultdict
 from datetime import datetime
 
-# ------------------ Evaluation Metrics ------------------
-def precision_at_k(retrieved_docs, relevant_docs, k=10):
-    """Compute Precision@K (P@K)"""
-    retrieved_top_k = retrieved_docs[:k]
-    relevant_count = sum(1 for doc in retrieved_top_k if doc in relevant_docs)
-    return relevant_count / k
+import numpy as np
+from tqdm import tqdm
+from sentence_transformers import util
+from scipy.stats import kendalltau
+
+from FullTextScreener import Config, QueryEngine
+from llama_index.core.settings import Settings
+from llama_index.llms.mistralai import MistralAI
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from neo4j import GraphDatabase, basic_auth
+
+# ---------- CONSTANTS ----------
+EMBED_MODELS = [
+    # ── already working for you ─────────────────────────
+    "Alibaba-NLP/gte-multilingual-base",
+    "intfloat/multilingual-e5-large-instruct",
+    "Lajavaness/bilingual-embedding-large",
+
+    # ── lightweight English & multilingual baselines ───
+    "sentence-transformers/all-MiniLM-L6-v2",                   # EN  | 90 MB
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",  # Multi | 230 MB
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",  # Multi | 440 MB
+
+    # ── e5 family (English & multilingual) ──────────────
+    "intfloat/e5-base",                         # EN  | 440 MB
+    "intfloat/multilingual-e5-base",            # Multi | 490 MB
+
+    # ── current strong English retriever ───────────────
+    "BAAI/bge-base-en-v1.5",                    # EN  | 470 MB
+]
 
 
-def mean_reciprocal_rank(retrieved_docs, relevant_docs, k=5):
-    """Compute Mean Reciprocal Rank (MRR@K)"""
-    for i, doc in enumerate(retrieved_docs[:k]):
-        if doc in relevant_docs:
-            return 1.0 / (i + 1)
+QUERY_FP = "beir/queries.jsonl"
+QRELS_FP = "beir/test.tsv"
+CONFIG_PATH = "./Config/ConfigLitScrIR.cfg"
+SIM_THRESHOLD = 0.7          # still used for ILD cosine diversity
+
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
+NEO4J_URI      = "bolt://localhost:7688"
+NEO4J_USERNAME = "neo4j"
+NEO4J_PASSWORD = "neo4j_rag_poc"
+
+all_results = {}
+
+LIVE_OUT = "ir_eval_multi_live.json"   # <- will be overwritten after each model
+
+def reset_vector_index(dim):
+    driver = GraphDatabase.driver(
+        NEO4J_URI, auth=basic_auth(NEO4J_USERNAME, NEO4J_PASSWORD)
+    )
+    with driver.session() as s:
+        # 1 Drop any existing index (ignore if it doesn't exist)
+        s.run("DROP INDEX corpus_vec IF EXISTS")
+
+        # 2 Create a fresh cosine-similarity index with the right dimension
+        s.run(
+            """
+            CREATE VECTOR INDEX corpus_vec
+            FOR (d:Document) ON (d.embedding)
+            OPTIONS {
+              indexConfig: {
+                `vector.dimensions`: $dim,
+                `vector.similarity_function`: 'cosine'
+              }
+            }
+            """,
+            dim=dim,
+        )
+    driver.close()
+
+
+def clear_neo4j():
+    """
+    Remove all data *and* drop every vector index, regardless of APOC.
+    Works on Neo4j 4.x / 5.x without extra plugins.
+    """
+    with GraphDatabase.driver(
+        NEO4J_URI, auth=basic_auth(NEO4J_USERNAME, NEO4J_PASSWORD)
+    ) as drv, drv.session() as sess:
+
+        # 1. delete all nodes/relationships
+        sess.run("MATCH (n) DETACH DELETE n")
+
+        # 2. list every index; keep only VECTOR ones (or any you recognise)
+        idx_res = sess.run("""
+            SHOW INDEXES
+            YIELD name, type
+            WHERE type = 'VECTOR' OR name STARTS WITH 'vector_'
+            RETURN name
+        """)
+        for rec in idx_res:
+            idx = rec["name"]
+            sess.run(f"DROP INDEX `{idx}` IF EXISTS")
+            print(f"  • dropped index {idx}")
+
+    print("✓ Neo4j cleared (data + vector indexes)")
+
+# ---------- RESULT DICT & LIVE-FILE ----------
+def save_partial(results: dict):
+    """Write current results to disk so you can inspect mid-run."""
+    with open(LIVE_OUT, "w") as f:
+        json.dump(results, f, indent=2)
+
+# ---------- tensor helper ----------
+def to_tensor(x):
+    """Ensure x is a 1-D float32 torch tensor (handles list / numpy / tensor)."""
+    return x if isinstance(x, torch.Tensor) else torch.tensor(x, dtype=torch.float32)
+
+def embed_dim(model) -> int:
+    """Return the *real* output length used in Neo4j."""
+    return len(model.get_text_embedding("dimension_probe"))
+
+# ---------- METRIC HELPERS ----------
+def precision_at_k(retrieved, relevant, k=10):
+    return sum(1 for d in retrieved[:k] if d in relevant) / k
+
+def mean_reciprocal_rank(retrieved, relevant, k=5):
+    for idx, d in enumerate(retrieved[:k]):
+        if d in relevant:
+            return 1.0 / (idx + 1)
     return 0.0
 
+def kendalls_tau(r1, r2):                   # r1, r2 = rank lists
+    return kendalltau(r1, r2)[0]
 
-# def context_recall(retrieved_docs, relevant_docs):
-#     """Compute Context Recall = Relevant Retrieved / Total Relevant"""
-#     if not relevant_docs:
-#         return 0.0
-#     relevant_retrieved = sum(1 for doc in retrieved_docs if doc in relevant_docs)
-#     return relevant_retrieved / len(relevant_docs)
+def intra_list_diversity(embs):             # list[Tensor]
+    if len(embs) < 2: return 1.0
+    sims = util.pytorch_cos_sim(
+        torch.stack(embs), torch.stack(embs)
+    ).cpu().numpy()
+    upper = sims[np.triu_indices(len(embs), 1)]
+    return float(np.mean(1 - upper))
 
+# ---------- LOAD BEIR QUERIES & QRELS ----------
+print("Loading BEIR queries and qrels …")
+queries = {}
+with jsonlines.open(QUERY_FP) as rd:
+    for obj in rd: 
+        queries[obj["_id"]] = obj["text"]
 
-def kendalls_tau(ranking_1, ranking_2):
-    """Compute Kendall’s Tau for ranking consistency"""
-    return kendalltau(ranking_1, ranking_2)[0]
+qrels = defaultdict(set)
+with open(QRELS_FP, newline="", encoding="utf-8") as f:
+    tsv = csv.reader(f, delimiter="\t")
+    next(tsv)                      # skip header
+    for qid, doc_id, score in tsv:
+        if float(score) > 0:
+            qrels[qid].add(doc_id)
 
+judged_queries = {qid: txt for qid, txt in queries.items() if qid in qrels}
+print(f"Queries w/ judgements : {len(judged_queries):,}\n")
 
-def intra_list_diversity(retrieved_embeddings):
-    """Compute Intra-List Diversity (ILD) using cosine similarity"""
-    if len(retrieved_embeddings) < 2:
-        return 1.0
-    diversity_scores = []
-    for i in range(len(retrieved_embeddings)):
-        for j in range(i + 1, len(retrieved_embeddings)):
-            sim = util.pytorch_cos_sim(retrieved_embeddings[i], retrieved_embeddings[j]).item()
-            diversity_scores.append(1 - sim)
-    return float(np.mean(diversity_scores)) if diversity_scores else 1.0
+# ---------- INIT LLM ONCE (unchanged) ----------
+cfg   = Config(CONFIG_PATH)
+llm   = MistralAI(model=cfg.mistral['model_name'],
+                  api_key=cfg.mistral['api_key'],
+                  temperature=0.0, max_tokens=1100)
+Settings.llm = llm
 
+# ---------- RESULT DICT ----------
+all_results = {}
 
-def is_relevant_by_similarity(doc_text, answer, embed_model, threshold=0.7):
-    """Use embedding cosine similarity to judge relevance"""
-    doc_emb = embed_model.get_text_embedding(doc_text)
-    ans_emb = embed_model.get_text_embedding(answer)
-    sim = util.pytorch_cos_sim(doc_emb, ans_emb).item()
-    return sim >= threshold, sim
-
-
-# ------------------ Main Execution ------------------
-if __name__ == "__main__":
-    # Load dataset sample
-    print("Loading dataset ...")
-    dataset = load_dataset("microsoft/wiki_qa")
-    train_data = dataset['train']
-    wiki_data = {}
-    for example in train_data:
-        if example["label"] != 1:
-            continue
-        title = example["document_title"]
-        wiki_data.setdefault(title, []).append((example["question"], example["answer"]))
-        # if len(wiki_data) >= 5:
-            # break
-    print("Dataset loaded!\n")
-
-    # Initialize Config and Query Engine
-    configPath = './Config/ConfigLitScr.cfg'
-    config = Config(configPath)
-    llm = MistralAI(model=config.mistral['model_name'], api_key=config.mistral['api_key'], temperature=0.0, max_tokens=1100)
-    embed_model = HuggingFaceEmbedding(model_name=config.mistral['embed_model'], max_length=768, trust_remote_code=True)
-    Settings.llm = llm
+# ---------- MAIN LOOP OVER EMBEDDING MODELS ----------
+for mdl_name in EMBED_MODELS:
+    print(f"\n=== Evaluating with embedding: {mdl_name} ===")
+    clear_neo4j() 
+    embed_model = HuggingFaceEmbedding(model_name=mdl_name,
+                                       trust_remote_code=True)
     Settings.embed_model = embed_model
-    qe = QueryEngine(llm, embed_model, config)
+    dim = len(embed_model.get_text_embedding("probe"))
+
+    # Patch *every* embeddim in cfg **before** QueryEngine is built
+    for sect in cfg.dict:
+        for key in ("embeddim", "embed_dim", "vector_dim"):
+            if key in cfg.dict[sect]:
+                cfg.dict[sect][key] = dim
+    
+    # (Re)build index with current embedder
+    qe = QueryEngine(llm, embed_model, cfg)
     qe._buildVectorQueryEngine(forceReindex=True)
     retriever = qe.vectorRetriever
-    print("Query engine initialized!\n")
 
-    # Initialize accumulators
-    all_p10, all_mrr5, all_recall, all_ild, all_tau = [], [], [], [], []
-    similarity_threshold = 0.7
+    p10s, mrr5s, ilds, taus = [], [], [], []
 
-    # Run evaluation
-    for title, qa_pairs in wiki_data.items():
-        print(f"Evaluating document: {title}\n")
-        for question, correct_answer in qa_pairs:
-            results = retriever.retrieve(question)
-            retrieved_texts = [doc.text for doc in results]
+    for qid, qtxt in tqdm(judged_queries.items(), desc=mdl_name[:25]):
+        rel_doc_ids = list(qrels[qid])
 
-            # Exact and similarity-based relevance
-            relevant_docs = []
-            sim_scores = []
-            ans_emb = embed_model.get_text_embedding(correct_answer)
-            for text in retrieved_texts:
-                is_rel, sim = is_relevant_by_similarity(text, correct_answer, embed_model, similarity_threshold)
-                sim_scores.append(sim)
-                if correct_answer.lower() in text.lower() or is_rel:
-                    relevant_docs.append(text)
+        res_nodes    = retriever.retrieve(qtxt)
+        doc_ids      = [n.metadata["file_name"].replace(".txt","") for n in res_nodes]  # adjust if you saved "doc_id"
+        doc_text_top = [n.text for n in res_nodes[:10]]
 
-            # Compute metrics per query
-            p10 = precision_at_k(retrieved_texts, relevant_docs, k=10)
-            mrr5 = mean_reciprocal_rank(retrieved_texts, relevant_docs, k=5)
-            # recall = context_recall(retrieved_texts, relevant_docs)
-            embeddings_10 = [embed_model.get_text_embedding(t) for t in retrieved_texts[:10]]
-            ild10 = intra_list_diversity(embeddings_10)
+        # -- metrics --
+        p10s.append(precision_at_k(doc_ids, rel_doc_ids, k=10))
+        mrr5s.append(mean_reciprocal_rank(doc_ids, rel_doc_ids, k=5))
 
-            # Kendall's Tau: compare retrieval order vs similarity-ranked order
-            rank1 = list(range(len(retrieved_texts)))
-            rank2 = [idx for idx, _ in sorted(enumerate(sim_scores), key=lambda x: x[1], reverse=True)]
-            tau = kendalls_tau(rank1, rank2)
+        emb10 = [to_tensor(embed_model.get_text_embedding(t))  # ← use helper
+         for t in doc_text_top]
+        ilds.append(intra_list_diversity(emb10))
 
-            # Accumulate
-            all_p10.append(p10)
-            all_mrr5.append(mrr5)
-            # all_recall.append(recall)
-            all_ild.append(ild10)
-            all_tau.append(tau)
+        q_emb = to_tensor(embed_model.get_text_embedding(qtxt))
+        sims   = util.pytorch_cos_sim(q_emb, torch.stack(emb10))[0].cpu().tolist()
+        taus.append(kendalls_tau(list(range(len(emb10))),
+                                 [i for i,_ in sorted(enumerate(sims), key=lambda x:-x[1])]))
 
-        # Remove this break to evaluate all documents
-        # break
-
-    # Compute overall averages
-    avg_p10 = np.mean(all_p10)
-    avg_mrr5 = np.mean(all_mrr5)
-    # avg_recall = np.mean(all_recall)
-    avg_ild = np.mean(all_ild)
-    avg_tau = np.mean(all_tau)
-
-    results = {
-        "Average_P@10": round(avg_p10, 3),
-        "Average_MRR@5": round(avg_mrr5, 3),
-        # "Average_Recall": round(avg_recall, 3),
-        "Average_ILD@10": round(avg_ild, 3),
-        "Average_Kendalls_Tau": round(avg_tau, 3),
-        "Num_Queries": len(all_p10)
+    # -- store per-model summary --
+    all_results[mdl_name] = {
+        "Average_P@10"      : round(float(np.mean(p10s)), 3),
+        "Average_MRR@5"     : round(float(np.mean(mrr5s)), 3),
+        "Average_ILD@10"    : round(float(np.mean(ilds)), 3),
+        "Average_Kendalls_Tau": round(float(np.mean(taus)), 3),
+        "Num_Queries"       : len(p10s)
     }
+    save_partial(all_results)
 
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    output_file = f"ir_eval_results_{timestamp}.json"
-    
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=4)
-    
-    print(f"\nResults saved to: {output_file}")
+# ---------- SAVE ONE JSON ----------
+ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+out = f"ir_eval_multi_{ts}.json"
+with open(out, "w") as f:
+    json.dump(all_results, f, indent=2)
 
-    # Print summary
-    print("\n=== Overall Evaluation ===")
-    print(f"Average P@10   : {avg_p10:.3f}")
-    print(f"Average MRR@5  : {avg_mrr5:.3f}")
-    # print(f"Average Recall : {avg_recall:.3f}")
-    print(f"Average ILD@10 : {avg_ild:.3f}")
-    print(f"Average Tau    : {avg_tau:.3f}")
+print("\nEvaluation finished →", os.path.abspath(out))
+print("Live snapshot (every model) →", os.path.abspath(LIVE_OUT))

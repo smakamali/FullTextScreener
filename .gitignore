@@ -26,3 +26,8 @@ neo4j_vol1/
 # output
 output/
 Config/ConfigLitScr.cfg
+Config/ConfigLitScrIR.cfg
+Config/ConfigLitScrEval.cfg
+
+# input
+input/
