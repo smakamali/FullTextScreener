@@ -1,32 +1,25 @@
-#################################### appVersion = 0.9.0 ######################################
+#################################### appVersion = 0.8.0 ######################################
+# This version supports the vector index only
 # TODO: harmonize config management
-# TODO: make sure the questions are articulated independently
 ################################ Import Required Dependencies ################################
-
-import os
-os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
-
 import os
 import sys
-import gc
 import subprocess
-import multiprocessing
 import requests
 import shutil
 import logging
 import time
 import random
-import json
-import csv
-import pandas as pd
 from configparser import ConfigParser
 from urllib.parse import urlparse
 import docker
+import gradio as gr
 from tqdm import tqdm
 from neo4j import GraphDatabase
+
 import torch
 
-import huggingface_hub
+# Import only the vector index–related modules from llama_index
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.core.query_engine import RetrieverQueryEngine
@@ -36,34 +29,43 @@ from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.core.utils import iter_batch
 from llama_index.core.agent import ReActAgent
+
+# Import vector store
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
 
 # Append the root directory to path so that the modules can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from Modules.Readers import CustomCSVReader, CustomPDFReader
+from Modules.CitationExtractor import formatReferences
+from Modules.CitationExtractor import getAgentCitationsN4j as getAgentCitations
 from Modules.Tools import touch, deleteFolderContents, ensureFolderExists
 
 ################################ System Message ################################
 systemMessage = """
-You are a literature screening assistant. You are designed to take a paper and a set of questions as input and provide answers, reasoning, and evidence from the text based on the format requested by the user.
-You always follow these rules:
-    Rule 1: Your main goal is to provide answers as accurately as possible, based on the instructions and context I have been given. 
-    Rule 2: If a question does not match the provided context or is outside the scope of the document, do not provide answers from my past knowledge. Simply reply "Unsure".
-    Rule 3: You always reply in a json format without any additional texts before or after the json.
-    Rule 4: If you encounter rate limits, you will retry as many times as you need to get the answer.
-    Rule 5: ATTENTION: You must always use the query engine tool to answer questions and ignore any previous conversation history.
-"""
+        You are a Q&A assistant named Document Chatbot, built by AminK.
+        You are designed to search in the uploaded documents for the most relevant information related to the user's question.
+        and synthesize an informed answer. 
+        You follow these rules:
+        Rule 0: You ALWAYS answer in the language of the user, defaulting to ENGLISH.
+        Rule 1: Your main goal is to provide answers as accurately as possible, based on the instructions and context you have been given. 
+        Rule 2: If the page number is available in the metadata, you report the page number for each piece of information that you provide as an inline citation with format [First Author Last Name et. al., Year of publication, page number(s)].
+        Rule 3: You ALWAYS retrieve information from the query engine even if the question is repeated and you have the answer in your memory.
+        Rule 4: If a question does not match the provided context or is outside the scope of the document, you do not provide answers from your past knowledge. You advise the user that the provided documents do not contain the requested information.
+        """
 
 ################################ Configurations ################################
 class Config:
     """
-    Loads configuration parameters from a config file.
+    This class represents the configuration for the chatbot.
+    It loads and converts configuration parameters from the config file.
     """
     def __init__(self, config_file):
         self.config = ConfigParser()
         self.config.read(config_file)
+
         self.dict = {}
+        # Load parameters from each section into class attributes
         for section in self.config.sections():
             section_data = self._load_section(section)
             setattr(self, section.replace('-', '_'), section_data)
@@ -90,18 +92,9 @@ class Config:
         except ValueError:
             return value
 
-################################ Helper Functions and classes ################################
-import json
-import datetime
-
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.isoformat()
-        return super().default(obj)
-    
+################################ Helper Functions ################################
 def setChunkingMethod(config):
-    # Configure how PDFs are chunked (either "semantic" or "static")
+    # extract configs for node parsing/chunking
     nodeParserType = config.nodeparser['nodeparsertype']
     bufferSize = config.nodeparser['buffersize']
     breakpointPercentileThreshold = config.nodeparser['breakpointpercentilethreshold']
@@ -132,6 +125,81 @@ def setChunkingMethod(config):
     else:
         raise Exception("`nodeParserType` must be either `static` or `semantic`")
 
+def buildNeo4jContainer(config):
+    containerName = config.neo4j['containername']
+    username = config.neo4j['username']
+    password = config.neo4j['password']
+    dataPath = config.dir_structure['datapath']
+    pluginsPath = config.dir_structure['pluginspath']
+    url1 = config.neo4j['url1']
+    url2 = config.neo4j['url2']
+
+    client = docker.from_env()
+
+    def extract_port(url):
+        parsed_url = urlparse(url)
+        return parsed_url.port
+
+    def wait_for_container(container):
+        while container.status != 'running':
+            print(f"Waiting for the container '{containerName}' to be running...")
+            time.sleep(5)
+            container.reload()
+
+    def wait_for_neo4j():
+        while True:
+            try:
+                response = requests.get(url2)
+                if response.status_code == 200:
+                    print("Neo4j is ready.")
+                    break
+            except requests.exceptions.ConnectionError:
+                print("Waiting for Neo4j to be available...")
+            time.sleep(5)
+
+    port1 = extract_port(url1)
+    port2 = extract_port(url2)
+
+    try:
+        container = client.containers.get(containerName)
+        if container.status != 'running':
+            print(f"The container '{containerName}' is not running. Starting it...")
+            container.start()
+            wait_for_container(container)
+            wait_for_neo4j()
+        else:
+            print(f"The container '{containerName}' is already running.")
+    except docker.errors.NotFound:
+        print(f"The container '{containerName}' does not exist. Creating and starting it...")
+        dataPath = os.path.abspath(dataPath)
+        pluginsPath = os.path.abspath(pluginsPath)
+        dockerCommand = [
+            "docker", "run", "--restart", "always", "--name", containerName,
+            f"--publish={port1}:{port1}", f"--publish={port2}:{port2}",
+            "--env", "NEO4J_AUTH=" + username + "/" + password,
+            "-e", "NEO4J_apoc_export_file_enabled=true",
+            "-e", "NEO4J_apoc_import_file_enabled=true",
+            "-e", "NEO4J_apoc_import_file_use__neo4j__config=true",
+            "-e", "NEO4J_PLUGINS=[\"apoc\"]",
+            "-v", f"{dataPath}:/data",
+            "-v", f"{pluginsPath}:/plugins",
+            "neo4j:latest"
+        ]
+        try:
+            subprocess.Popen(dockerCommand)
+            print(f"Started the Docker container '{containerName}'.")
+        except Exception as e:
+            print(f"Error occurred while starting the container: {e}")
+        while True:
+            try:
+                container = client.containers.get(containerName)
+                wait_for_container(container)
+                wait_for_neo4j()
+                break
+            except docker.errors.NotFound:
+                print(f"Waiting for the container '{containerName}' to be created...")
+                time.sleep(5)
+    client.close()
 
 def setLogging(config):
     enableLogging = config.general['enablelogging']
@@ -162,7 +230,7 @@ def safeApiCall(call, enableLogging, *args, **kwargs):
             if enableLogging:
                 log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
                 logging.info(log_str)
-                # print(log_str)
+                print(log_str)
             return result
         except Exception as e:
             wait = 2 ** attempt + random.random()
@@ -176,7 +244,7 @@ def safeApiCall(call, enableLogging, *args, **kwargs):
 ################################ File Management ################################
 class FileManagement:
     """
-    Manages file operations: uploading, listing, and clearing files.
+    Provides file management functionalities: uploading, listing, and clearing files.
     """
     def __init__(self, config) -> None:
         self.config = config
@@ -188,10 +256,9 @@ class FileManagement:
         self.logDir = self.config.dir_structure['logdir']
         self.dataPath = self.config.dir_structure['datapath']
         self.pluginsPath = self.config.dir_structure['pluginspath']
-        self.outputDir = self.config.dir_structure['outputdir']
     
     def buildFolders(self):
-        foldersToBuild = [self.inputDir, self.logDir, self.dataPath, self.pluginsPath,self.outputDir]
+        foldersToBuild = [self.inputDir, self.logDir, self.dataPath, self.pluginsPath]
         for folder in foldersToBuild:
             ensureFolderExists(folder)
         
@@ -204,7 +271,7 @@ class FileManagement:
             shutil.copyfile(file, targetFileName)
             message += str(fileName) + '\n'
             self.fileNames.append(fileName)
-        print("File(s) uploaded successfully!")
+        gr.Info("File(s) uploaded successfully!")
         message += str(len(files)) + " files were uploaded!\n"
         return message
 
@@ -225,7 +292,7 @@ class FileManagement:
 ################################ Storage Management ################################
 class Storage:
     """
-    Manages storage using only the vector store.
+    Manages storage and retrieval of data using only the vector store.
     """
     def __init__(self, config) -> None:
         self.config = config
@@ -276,27 +343,24 @@ class Index:
         self.enableLogging = self.config.general['enablelogging']
     
     def _buildVector(self, documents, batchSize=4):
-        vectorIndex = None  # Initialize before the loop
-        
-        for batch in tqdm(iter_batch(documents, batchSize), desc='Building VectorIndex'):
-            try:
-                if vectorIndex is None:
-                    vectorIndex = VectorStoreIndex.from_documents(
-                        documents=batch,
-                        storage_context=self.storage.storageContextVector,
-                        show_progress=self.showProgress
-                    )
-                else:
-                    vectorIndex.insert_nodes(batch)
-            except Exception as e:
-                print(f"Error processing batch: {e}")
-                raise  # Re-raise to stop processing if batch fails
-        
-        if vectorIndex is None:
-            raise ValueError("Failed to build vector index - no successful batches")
-        
+        for batch in tqdm(iter_batch(documents, batchSize), 
+                          total=len(documents)//batchSize, 
+                          desc='Build VectorIndex for node batches'):
+            startBatchTime = time.time()
+            vectorIndex = safeApiCall(
+                call=VectorStoreIndex.from_documents,
+                enableLogging=self.enableLogging,
+                documents=batch,
+                storage_context=self.storage.storageContextVector,
+                show_progress=self.showProgress
+            )
+            endBatchTime = time.time()
+            logMsg = f"Batch processed. Duration: {endBatchTime - startBatchTime:.2f} seconds."
+            if self.enableLogging:
+                logging.info(logMsg)
+            else:
+                print(logMsg)
         self.vectorIndex = vectorIndex
-        return vectorIndex
     
     def append(self, inputDocsDir, batchSize=1):
         documents = SimpleDirectoryReader(
@@ -404,23 +468,21 @@ class QueryEngine:
         rm = self._buildVectorQueryEngine()
         return self.vectorQueryEngine, rm
 
-
 ################################ Chatbot Agents ################################
 class ChatbotAgents:
     """
-    Integrates the language model, query engine, and related tools.
-    This version supports only vector-based retrieval.
+    Integrates the language model, query engine, and UI tools into a functional chatbot.
     """
     successMsg = 'Chatbot Agents updated successfully!'
     def __init__(self, configPath) -> None:
-        self.availableServices = ['huggingface', 'mistral',"llama3"]
+        self.availableServices = ['huggingface', 'mistral']
         self.configPath = configPath
         self.config = Config(configPath)
         self.getConfigs()
         self.getModelConfigs(self.configPath)
-        if self.service == self.availableServices[0]:  # huggingface
+        if self.service == self.availableServices[0]:
             self.getHuggingFaceLlmAndEmbedding()
-        elif self.service == self.availableServices[1]:  # mistral
+        elif self.service == self.availableServices[1]:
             self.getMistralLlmAndEmbedding()
         else:
             raise ValueError(f'service must be in ({self.availableServices})')
@@ -441,10 +503,10 @@ class ChatbotAgents:
         self.temperature = config.getfloat('llm-model', 'temperature')
         self.do_sample = config.getboolean('llm-model', 'do_sample')
         self.max_iterations = config.getint('agent', 'max_iterations')
-        self.enable_agent = config.getboolean('agent', 'enable_agent')
     
     def getMistralLlmAndEmbedding(self):
         from llama_index.llms.mistralai import MistralAI
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         self.llm = MistralAI(
             model=self.llmModel,
             api_key=self.apiKey,
@@ -456,18 +518,15 @@ class ChatbotAgents:
             max_length=self.embedDim,
             trust_remote_code=True
         )
-
-
     
     def getHuggingFaceLlmAndEmbedding(self):
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
         from llama_index.llms.huggingface import HuggingFaceLLM
         from transformers import BitsAndBytesConfig
-
-        # system_prompt = "<|SYSTEM|>\n" + systemMessage + "\n"
-        # query_wrapper_prompt = PromptTemplate(
-        #     "<|USER|>\n{query_str}\n<|ASSISTANT|>\n"
-        # )
+        system_prompt = "<|SYSTEM|>\n" + systemMessage + "\n"
+        query_wrapper_prompt = PromptTemplate(
+            "<|USER|>\n{query_str}\n<|ASSISTANT|>\n"
+        )
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
@@ -478,14 +537,12 @@ class ChatbotAgents:
             context_window=10000,
             max_new_tokens=self.max_new_tokens,
             generate_kwargs={"temperature": self.temperature, "do_sample": self.do_sample},
-            # system_prompt=system_prompt,
-            # query_wrapper_prompt=query_wrapper_prompt,
+            system_prompt=system_prompt,
+            query_wrapper_prompt=query_wrapper_prompt,
             tokenizer_name=self.llmModel,
             model_name=self.llmModel,
-            device_map="cuda:0",
-            model_kwargs={
-                "quantization_config": quantization_config,
-            },
+            device_map="auto",
+            model_kwargs={"quantization_config": quantization_config},
         )
         self.embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName, 
@@ -510,7 +567,7 @@ class ChatbotAgents:
             query_engine=self.queryEngine.vectorQueryEngine,
             metadata=ToolMetadata(
                 name="vector_rag_query_engine",
-                description="ATTENTION: Always use this tool to answer questions, ignore your memory or any prior knowledge.",
+                description="Useful for answering queries based on the uploaded document.",
             ),
         )
         self.vectorAgent = ReActAgent.from_tools(
@@ -542,19 +599,10 @@ class ChatbotAgents:
         self.updateQueryEngine()
     
     def chatbot(self, queryStr, history):
-        messages = [
-            {"role": "system", "content": systemMessage},
-            {"role": "user", "content": queryStr},
-        ]
-        # The query should include instructions to output a JSON with the required keys.
-        if self.enable_agent:
-            chatOutput = self.selectedAgent.chat(queryStr, tool_choice="vector_rag_query_engine")
-        else:
-            chatOutput = self.queryEngine.vectorQueryEngine.query(queryStr)
-        # print("=======> chatOutput",chatOutput)
-        # Here we assume the LLM returns a JSON-formatted string.
-        # Optionally, you might want to process references; for now we pass the raw output.
-        output = chatOutput.response
+        chatOutput = self.selectedAgent.chat(queryStr)
+        references = formatReferences(getAgentCitations(chatOutput, cutoff_score=self.config.retriever['cutoffscore']))
+        output = chatOutput.response + references
+        print("Chatbot Answer:\n", output)
         return output
     
     def uploadFiles(self, files):
@@ -569,7 +617,7 @@ class ChatbotAgents:
     def clearFiles(self):
         try:
             self.queryEngine.index.storage.clear()
-            # self.queryEngine.index.fileManager.clear()
+            self.queryEngine.index.fileManager.clear()
             self.queryEngine.index.clear()
             return "Database and input directory were cleared successfully!"
         except Exception as e:
@@ -587,330 +635,122 @@ class ChatbotAgents:
     
     def getSelectedAgent(self):
         return self.selectedAgent
-    
-    def cleanup(self):
-        """
-        Comprehensive cleanup of resources to free GPU memory
-        """
-        try:
-            # Clear existing data
-            self.clearFiles()
-            
-            # For HuggingFaceLLM and HuggingFaceEmbedding specifically
-            if hasattr(self, 'llm') and self.llm is not None:
-                # Access and clear the underlying model if possible
-                if hasattr(self.llm, '_model'):
-                    if hasattr(self.llm._model, 'cpu'):
-                        # Move model to CPU first
-                        self.llm._model.cpu()
-                    del self.llm._model
-                
-                # Clear any tokenizer
-                if hasattr(self.llm, '_tokenizer'):
-                    del self.llm._tokenizer
-                    
-                # Delete the entire LLM instance
-                del self.llm
-                self.llm = None
-                
-            if hasattr(self, 'embedModel') and self.embedModel is not None:
-                # Access and clear the underlying model
-                if hasattr(self.embedModel, 'client'):
-                    del self.embedModel.client
-                if hasattr(self.embedModel, '_model'):
-                    if hasattr(self.embedModel._model, 'cpu'):
-                        # Move model to CPU first
-                        self.embedModel._model.cpu()
-                    del self.embedModel._model
-                    
-                # Delete the entire embedding model instance
-                del self.embedModel
-                self.embedModel = None
-                
-            # Reset agent components
-            if hasattr(self, 'vectorQueryEngineTool'):
-                del self.vectorQueryEngineTool
-                self.vectorQueryEngineTool = None
-                
-            if hasattr(self, 'vectorAgent'):
-                del self.vectorAgent
-                self.vectorAgent = None
-                
-            if hasattr(self, 'queryEngine'):
-                # Clean up vectorRetriever
-                if hasattr(self.queryEngine, 'vectorRetriever'):
-                    del self.queryEngine.vectorRetriever
-                
-                # Clean up index and its components
-                if hasattr(self.queryEngine, 'index'):
-                    # Access any vector store
-                    if hasattr(self.queryEngine.index, 'vector_store'):
-                        del self.queryEngine.index.vector_store
-                    
-                    # Clean up any docstore
-                    if hasattr(self.queryEngine.index, 'docstore'):
-                        del self.queryEngine.index.docstore
-                        
-                    # Delete the index itself
-                    del self.queryEngine.index
-                
-                # Clear the vector query engine
-                if hasattr(self.queryEngine, 'vectorQueryEngine'):
-                    del self.queryEngine.vectorQueryEngine
-                    
-                # Finally delete the query engine
-                del self.queryEngine
-                self.queryEngine = None
-                
-            # Force garbage collection multiple times
-            import gc
-            gc.collect()
-            gc.collect()
-            
-            # Aggressive CUDA cache clearing
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                # Additional memory cleanup
-                torch.cuda.ipc_collect()
-                
-            return "Resources cleaned up successfully!"
-        except Exception as e:
-            print("Exception occurred during cleanup: ", e)
-            return "Resource cleanup failed!"
 
-################################ Literature Screening Function ################################
-def cleanAndConvertJson(jsonText):
-    """
-    Cleans and converts a JSON string into a Python dictionary.
-
-    Args:
-        jsonText (str): JSON text as a string, possibly with extra characters.
-
-    Returns:
-        dict: Parsed JSON data as a dictionary, or None if parsing fails.
-    """
-    cleanedText = jsonText.strip("'```json").strip('```')
-
-    cleanedText = cleanedText.replace("\\'", "'").replace('\\n', '\n')
-
-
-    cleanedText = '\n'.join([line.strip() for line in cleanedText.splitlines()])
-    try:
-        return json.loads(cleanedText)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-        return cleanedText
-
-################################ Save individual responses ################################
-def save_individual_result(paper_id, paper_data, output_dir):
-    """
-    Save individual paper results to a JSON file named after the paper_id.
-    
-    Args:
-        paper_id (str): The ID/filename of the paper
-        paper_data (dict): The paper's data including metadata and answers
-        output_dir (str): Directory where individual results should be saved
-    """
-    ensureFolderExists(output_dir)
-    output_path = os.path.join(output_dir, f"{paper_id}.json")
-    with open(output_path, "w", encoding="utf-8") as outfile:
-        json.dump(paper_data, outfile, indent=2, cls=DateTimeEncoder)
-    print(f"Saved individual results for {paper_id} to {output_path}")
-
-
-def process_single_paper(row, questions, configPath, input_pdf_folder):
-    """
-    Process a single paper:
-      - Instantiate a new screeningAgent (ChatbotAgents) to refresh memory.
-      - Reset the database and index store.
-      - Upload and index the corresponding PDF.
-      - Iterate over the questions and query the indexed document.
-      - Return a dictionary mapping paper_id to its answers.
-    """
-    paper_id = row["pdf_filename"]  # Treat paper_id as a string instead of converting to int
-    pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
-    print(f"\nProcessing paper {paper_id} with PDF file: {pdf_filename}")
-    
-    # Instantiate a new screeningAgent for this paper.
-    screeningAgent = ChatbotAgents(configPath=configPath)
-    screeningAgent.selectDefaultAgent()
-    
-    # Reset the database and clear any uploaded files.
-    screeningAgent.clearFiles()
-    
-    # Build the full path to the PDF file.
-    pdf_path = os.path.join(input_pdf_folder, pdf_filename)
-    if not os.path.exists(pdf_path):
-        print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
-    
-    # Upload the PDF file.
-    upload_msg = screeningAgent.uploadFiles([pdf_path])
-    print(upload_msg)
-    
-    # Index the uploaded PDF using current vector retrieval settings.
-    vectorTopK = screeningAgent.config.retriever['vectortopk']
-    cutoffScore = screeningAgent.config.retriever['cutoffscore']
-    enableLogging = screeningAgent.config.general['enablelogging']
-
-    try:
-        screeningAgent.appendIndex(vectorTopK, cutoffScore)
-    except Exception as e:
-        print(f"Error indexing PDF: {e}")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
-    
-    # For each question, query the document.
-    paper_answers = {}
-    for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
-        full_query = (
-            q_text +
-            """\n
-            ATTENTION: When answering questions, always use the query engine tool and do not rely on your internal memory.
-            Include all valid short answers in your query string when using the query engine tool.
-            Answer in English, in the following JSON format:
-                QuestionText: exactly repeat the question with short valid answers,
-                ShortAnswer: one of the valid short answers,
-                Reasoning: specify your reasoning or any additional notes for providing the answer,
-                Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
-        )
-        answer = safeApiCall(
-            screeningAgent.chatbot,
-            enableLogging=enableLogging,
-            queryStr=full_query,
-            history=None
-        )
-
-        print(answer)
-
-        parsed_answer = cleanAndConvertJson(answer)
-        paper_answers[q_key] = parsed_answer
-
-    # Create the result dictionary for this paper
-    paper_result = {paper_id: {"metadata": row, "answers": paper_answers}}
-    
-    # Save individual result
-    config = Config(configPath)
-    individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
-    save_individual_result(paper_id, paper_result[paper_id], individual_output_dir)
-
-    # Clean up by deleting the agent, collecting garbage, and emptying the GPU cache.
-    screeningAgent.cleanup()
-    del screeningAgent
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    return paper_result
-
-
-def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
-    """
-    For each paper in the metadata file (csv or xlsx):
-      - Process the paper in a separate subprocess.
-      - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
-        uploads and indexes the PDF, then answers each question.
-      - Adds a 3-minute delay between processing each paper.
-    Finally, all results are saved in a single JSON file.
-    Additionally, logs the total processing time and average time per paper.
-    """
-    import time
-
-    start_time = time.time()
-
-    results = {}
-    rows = []
-    if metadata_file_path.endswith('.csv'):
-        with open(metadata_file_path, newline='', encoding='utf-8-sig') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                rows.append(row)
-    elif metadata_file_path.endswith('.xlsx'):
-        df = pd.read_excel(metadata_file_path)
-        df.fillna('', inplace=True)  # Fill NaN values with empty strings
-        rows = df.to_dict('records')
+# Mock like functionality for feedback
+def vote(data: gr.LikeData):
+    if data.liked:
+        print("You upvoted this response: ", data.value)
     else:
-        raise ValueError(f"Unsupported file type: {metadata_file_path}")
-    
-    # Process papers sequentially with delay instead of using multiprocessing
-    for i, row in enumerate(rows):
-        # Process the current paper
-        result = process_single_paper(row, questions, configPath, input_pdf_folder)
-        results.update(result)
-        
-        # Add delay after each paper except the last one
-        if i < len(rows) - 1:
-            delay_minutes = 1
-            delay_seconds = delay_minutes * 60
-            print(f"\nProcessing completed for paper {i+1}/{len(rows)}. Waiting {delay_minutes} minutes before next paper...")
-            time.sleep(delay_seconds)
-    
-    print(f"Processing complete for {len(results)} papers.")
-
-    with open(output_json_path, "w", encoding="utf-8") as outfile:
-        json.dump(results, outfile, indent=2, cls=DateTimeEncoder)
-    print(f"\nScreening results saved to {output_json_path}")
-
-    end_time = time.time()
-    total_time = end_time - start_time
-    avg_time_per_paper = total_time / len(rows) if rows else 0
-
-    print(f"Total processing time: {total_time:.2f} seconds")
-    print(f"Average time per paper: {avg_time_per_paper:.2f} seconds")
-
-
+        print("You downvoted this response: ", data.value)
 
 ################################ Main Execution ################################
-
-import json
-
-
 if __name__ == "__main__":
-    # Path to the config file
-    configPath = './Config/ConfigLitScr.cfg'
+    configPath = './Config/ConfigNew.cfg'
     config = Config(configPath)
-    print("Loaded configuration:")
-    print(config.neo4j)
-    print(config.dir_structure)
-    print(config.general)
-    print(config.retriever)
-    print(config.nodeparser)
+    print(config.neo4j)          # Neo4j-related parameters
+    print(config.dir_structure)  # Directory structure parameters
+    print(config.general)        # General parameters
+    print(config.indices)        # Indices-related parameters
+    print(config.retriever)      # Retriever-related parameters
+    print(config.nodeparser)     # Node parser parameters
 
-    # Extract some default parameters
     appVersion = config.general['appversion']
-    huggingFaceToken = config.huggingface['api_key']
-
-    # logging into huggingface
-    print(f"###### Hugging Face Token: {huggingFaceToken}")
-    try:
-        huggingface_hub.login(huggingFaceToken)
-        print("Successfully logged into huggingface!")
-    except Exception as e:
-        print(f"Error logging into huggingface: {e}")
+    vectorTopK = config.retriever['vectortopk']
+    cutoffScore = config.retriever['cutoffscore']
+    forceReindex = config.general['forcereindex']
 
     logger = setLogging(config)
 
     try:
-        # Optionally, set up Neo4j container if required
+        # Setup Neo4j container if needed
         # buildNeo4jContainer(config)
         
-        # Initialize the ChatbotAgents (which now functions as the screening engine)
+        # Initialize chatbot agents with only vector index support
+        chatbotAgents = ChatbotAgents(configPath=configPath)
         setChunkingMethod(config)
-        
-        # Define the metadata CSV file path and the input folder containing the PDFs.
-        # Adjust these paths as necessary.
-        metadata_csv_path = config.dir_structure['metadatafile']      # CSV file with paper metadata (must include "paper_id" column)
-        input_pdf_folder = config.dir_structure['input_pdf_folder']  # Folder where all paper PDFs are stored
-        output_json_path = config.dir_structure['outputfile']  # File to save all screening results
-        questions_file_path = config.dir_structure['questions_file_path']  # File to save all screening results
 
-            # Define the set of questions as a key-value dictionary.
-        with open(questions_file_path, 'r', encoding='utf-8') as f:
-            questions = json.load(f)
+        if forceReindex:
+            chatbotAgents.queryEngine.index.clear()
+            chatbotAgents.appendIndex(vectorTopK, cutoffScore)
+
+        chatbotAgents.selectDefaultAgent()
         
-        # Run the literature screening process.
-        literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path)
+        ################################ Gradio UI ################################
+        css = """
+        #chatbot {
+            flex-grow: 1 !important;
+            overflow: auto !important;
+        }
+        #col {
+            height: calc(100vh - 112px - 16px) !important;
+        }
+        #menu {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            height: calc(100vh - 112px - 16px) !important;
+        }
+        #reset {
+            background-color: #FF5733;
+            color: white;
+        }
+        #reset:hover {
+            background-color: #C70039;
+        }
+        """
+        with gr.Blocks(theme=gr.themes.Soft(), css=css) as demo:
+            with gr.Row():
+                with gr.Column(scale=3, elem_id="menu"):
+                    resetButton = gr.Button("Reset the Database", render=True, elem_id="reset")
+                    resetStatus = gr.Markdown("", line_breaks=True)
+                    uploadButton = gr.UploadButton("Upload Files", file_count="multiple", file_types=['.pdf', '.csv'])
+                    uploadStatus = gr.Markdown("", line_breaks=True)
+                    indexButton = gr.Button(value="Ingest Files")
+                    indexStatus = gr.Markdown("", line_breaks=True)
+                    with gr.Accordion("Retrieval Parameters", open=False):
+                        vectorTopKSelector = gr.Slider(label='Vector Top k', minimum=1, maximum=10, value=vectorTopK, step=1)
+                        cutoffScoreSelector = gr.Slider(label='References Min Relevance Score', minimum=0, maximum=1, value=cutoffScore, step=0.01)
+                        submitRetrievalParams = gr.Button(value='Update Chatbot')
+                with gr.Column(scale=7, elem_id="col"):
+                    gr.Markdown(f'<h1 style="text-align: center;">Chat with Your Documents v{appVersion}</h1>')
+                    chatbot = gr.Chatbot(elem_id="chatbot", render=False)
+                    chatbot.like(vote, None, None)
+                    gr.ChatInterface(
+                        chatbotAgents.chatbot,
+                        chatbot=chatbot,
+                        fill_height=True
+                    )
+
+            resetButton.click(
+                fn=chatbotAgents.clearFiles,
+                outputs=resetStatus,
+                api_name="Reset Files",
+                show_progress=True,
+            )
+
+            uploadButton.upload(
+                fn=chatbotAgents.uploadFiles,
+                inputs=uploadButton,
+                outputs=uploadStatus,
+                show_progress="full",
+            )
+
+            indexButton.click(
+                fn=chatbotAgents.appendIndex,
+                inputs=[vectorTopKSelector, cutoffScoreSelector],
+                outputs=[indexStatus],
+                api_name="Index Files",
+                show_progress=True
+            )
+
+            submitRetrievalParams.click(
+                fn=chatbotAgents.updateParams,
+                inputs=[vectorTopKSelector, cutoffScoreSelector],
+                api_name="Update Chatbot",
+                show_progress=True
+            )
+
+        demo.queue().launch(share=True)
     
     except Exception as e:
-        logger.error(f"Exception occurred:\n\n {e}", exc_info=True)
+        logger.error(f"Exception occured:\n\n {e}", exc_info=True)

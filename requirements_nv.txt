@@ -23,8 +23,14 @@ bitsandbytes
 protobuf
 sentencepiece
 mistralai
+mauve-text
 llama-index-llms-mistralai
 llama-index-embeddings-mistralai
 pandas
 openpyxl
 pdfplumber
+sentence-transformers
+accelerate
+transformers 
+llama-index-llms-huggingface
+bitsandbytes

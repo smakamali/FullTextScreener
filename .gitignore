@@ -1,33 +1,20 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
+./__pycache__
+./Modules/__pycache__
+./venv
+/.venv
+./logs
+./input
+./.idea
+./__pycache__
 
-# VSCode settings
-.vscode/
-
-# Logs
-*.log
-
-# Environment files
-.env
-
-# Jupyter notebook checkpoints
-.ipynb_checkpoints/
-
-# Cache and model weights
-*.cache/
-*.pt
-*.h5
-
-# neo4j
-neo4j_vol1/
-
-# output
-output/
-Config/ConfigLitScr.cfg
-Config/ConfigLitScrIR.cfg
-Config/ConfigLitScrEval.cfg
-
-# input
-input/
+venv
+.venv
+__pycache__
+.idea
+logs 
+logs_temp
+output_temp
+output
+input
+form
+Evaluations/models
