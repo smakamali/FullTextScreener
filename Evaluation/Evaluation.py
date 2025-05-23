@@ -5,7 +5,7 @@ from rouge_score import rouge_scorer
 import bert_score
 
 # === Load Predictions and References ===
-with open("Evaluation.json") as f:
+with open("merged_output.json", encoding="utf-8") as f:
     data = json.load(f)
 
 # === Metric Tools ===

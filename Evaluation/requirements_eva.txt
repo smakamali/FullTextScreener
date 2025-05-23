@@ -1,0 +1,9 @@
+numpy
+scikit-learn
+sentence-transformers
+mauve-text
+scikit-learn
+rouge-score
+bert-score
+matplotlib
+seaborn

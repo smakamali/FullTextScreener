@@ -451,19 +451,11 @@ class ChatbotAgents:
             temperature=self.temperature,
             max_tokens=self.max_new_tokens
         )
-        if 'mistral' in self.embeddingModelName:
-            from llama_index.embeddings.mistralai import MistralAIEmbedding
-            self.embedModel = MistralAIEmbedding(
-                model=self.embeddingModelName,
-                api_key=self.apiKey
-            )
-        else:
-            from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-            self.embedModel = HuggingFaceEmbedding(
-                model_name=self.embeddingModelName, 
-                max_length=self.embedDim,
-                trust_remote_code=True
-            )
+        self.embedModel = HuggingFaceEmbedding(
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
+        )
 
 
     
@@ -727,51 +719,19 @@ def save_individual_result(paper_id, paper_data, output_dir):
     print(f"Saved individual results for {paper_id} to {output_path}")
 
 
-def process_single_paper(row, questions, configPath, input_pdf_folder):
+def process_single_paper(row, questions, screeningAgent):
     """
-    Process a single paper:
-      - Instantiate a new screeningAgent (ChatbotAgents) to refresh memory.
-      - Reset the database and index store.
-      - Upload and index the corresponding PDF.
-      - Iterate over the questions and query the indexed document.
-      - Return a dictionary mapping paper_id to its answers.
+    Process a single paper using a persistent screeningAgent:
+      - Assumes the agent is already initialized, PDF uploaded, and indexed.
+      - Iterates over the questions and queries the indexed document.
+      - Returns a dictionary mapping paper_id to its answers.
     """
-    paper_id = row["pdf_filename"]  # Treat paper_id as a string instead of converting to int
-    pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
-    print(f"\nProcessing paper {paper_id} with PDF file: {pdf_filename}")
-    
-    # Instantiate a new screeningAgent for this paper.
-    screeningAgent = ChatbotAgents(configPath=configPath)
-    screeningAgent.selectDefaultAgent()
-    
-    # Reset the database and clear any uploaded files.
-    screeningAgent.clearFiles()
-    
-    # Build the full path to the PDF file.
-    pdf_path = os.path.join(input_pdf_folder, pdf_filename)
-    if not os.path.exists(pdf_path):
-        print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
-    
-    # Upload the PDF file.
-    upload_msg = screeningAgent.uploadFiles([pdf_path])
-    print(upload_msg)
-    
-    # Index the uploaded PDF using current vector retrieval settings.
-    vectorTopK = screeningAgent.config.retriever['vectortopk']
-    cutoffScore = screeningAgent.config.retriever['cutoffscore']
-    enableLogging = screeningAgent.config.general['enablelogging']
+    paper_id = row["pdf_filename"]
+    print(f"\nProcessing paper {paper_id}...")
 
-    try:
-        screeningAgent.appendIndex(vectorTopK, cutoffScore)
-    except Exception as e:
-        print(f"Error indexing PDF: {e}")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
-    
-    # For each question, query the document.
     paper_answers = {}
+    history = []  # Optional: for simulating conversational context
+
     for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
         full_query = (
             q_text +
@@ -784,50 +744,59 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
                 Reasoning: specify your reasoning or any additional notes for providing the answer,
                 Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
         )
-        answer = safeApiCall(
-            screeningAgent.chatbot,
-            enableLogging=enableLogging,
-            queryStr=full_query,
-            history=None
-        )
 
-        print(answer)
+        try:
+            answer = safeApiCall(
+                screeningAgent.chatbot,
+                enableLogging=screeningAgent.config.general['enablelogging'],
+                queryStr=full_query,
+                history=history  # Optional: pass past interactions
+            )
+            print(answer)
 
-        parsed_answer = cleanAndConvertJson(answer)
-        paper_answers[q_key] = parsed_answer
+            parsed_answer = cleanAndConvertJson(answer)
+            paper_answers[q_key] = parsed_answer
 
-    # Create the result dictionary for this paper
+            # Optional: Append to simulated conversation history
+            history.append({"role": "user", "content": full_query})
+            history.append({"role": "assistant", "content": str(parsed_answer)})
+
+        except Exception as e:
+            print(f"Error during QA for question {q_key}: {e}")
+            paper_answers[q_key] = {"error": str(e)}
+
+    # Construct the final result dictionary
     paper_result = {paper_id: {"metadata": row, "answers": paper_answers}}
-    
-    # Save individual result
-    config = Config(configPath)
-    individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
-    save_individual_result(paper_id, paper_result[paper_id], individual_output_dir)
 
-    # Clean up by deleting the agent, collecting garbage, and emptying the GPU cache.
+    # Save result
+    output_dir = os.path.join(screeningAgent.config.dir_structure['outputdir'], 'individual')
+    save_individual_result(paper_id, paper_result[paper_id], output_dir)
+
+    # Clean up the agent and GPU memory
     screeningAgent.cleanup()
     del screeningAgent
     gc.collect()
     torch.cuda.empty_cache()
-    
+
     return paper_result
+
 
 
 def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
     """
     For each paper in the metadata file (csv or xlsx):
-      - Process the paper in a separate subprocess.
-      - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
-        uploads and indexes the PDF, then answers each question.
-      - Adds a 3-minute delay between processing each paper.
-    Finally, all results are saved in a single JSON file.
-    Additionally, logs the total processing time and average time per paper.
+      - Create a persistent ChatbotAgent for that paper.
+      - Upload and index the PDF once.
+      - Answer all questions using the same agent to preserve context.
+      - Wait between papers to manage rate limits or system resources.
+    Saves individual results and a combined JSON output.
     """
     import time
 
     start_time = time.time()
-
     results = {}
+
+    # Load metadata rows
     rows = []
     if metadata_file_path.endswith('.csv'):
         with open(metadata_file_path, newline='', encoding='utf-8-sig') as csvfile:
@@ -840,20 +809,39 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         rows = df.to_dict('records')
     else:
         raise ValueError(f"Unsupported file type: {metadata_file_path}")
-    
-    # Process papers sequentially with delay instead of using multiprocessing
+
+    # Process each paper
     for i, row in enumerate(rows):
-        # Process the current paper
-        result = process_single_paper(row, questions, configPath, input_pdf_folder)
-        results.update(result)
-        
-        # Add delay after each paper except the last one
-        if i < len(rows) - 1:
-            delay_minutes = 1
-            delay_seconds = delay_minutes * 60
-            print(f"\nProcessing completed for paper {i+1}/{len(rows)}. Waiting {delay_minutes} minutes before next paper...")
-            time.sleep(delay_seconds)
-    
+        try:
+            # Initialize agent once per paper
+            screeningAgent = ChatbotAgents(configPath=configPath)
+            screeningAgent.selectDefaultAgent()
+            screeningAgent.clearFiles()
+
+            # Upload and index the PDF
+            screeningAgent.uploadFiles([pdf_path])
+            screeningAgent.appendIndex(
+                screeningAgent.config.retriever['vectortopk'],
+                screeningAgent.config.retriever['cutoffscore']
+            )
+
+            # Run QA
+            result = process_single_paper(row, questions, screeningAgent)
+            results.update(result)
+
+        except Exception as e:
+            print(f"Error processing paper {paper_id}: {e}")
+            continue
+
+        # # Optional delay between papers
+        # if i < len(rows) - 1:
+        #     delay_minutes = 1
+        #     delay_seconds = delay_minutes * 60
+        #     print(f"\nProcessing complete for paper {i+1}/{len(rows)}. Waiting {delay_minutes} minute(s)...")
+        #     time.sleep(delay_seconds)
+
+    print(f"\nProcessing complete for {len(results)} papers.")
+
     print(f"Processing complete for {len(results)} papers.")
 
     with open(output_json_path, "w", encoding="utf-8") as outfile:

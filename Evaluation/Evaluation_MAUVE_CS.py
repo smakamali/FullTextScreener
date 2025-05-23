@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from mauve import compute_mauve
 
 # Load the JSON data
-with open('Evaluation.json', 'r') as f:
+with open("merged_output.json", encoding="utf-8") as f:
     data = json.load(f)
 
 # Initialize Sentence-BERT for embeddings
