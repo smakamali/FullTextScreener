@@ -18,6 +18,5 @@ output
 input
 form
 Evaluations - *
-Config/ConfigLitScr.cfg
-./Config/ConfigLitScr.cfg
+/Config/ConfigLitScr.cfg
 neo4j_vol1
