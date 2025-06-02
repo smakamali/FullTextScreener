@@ -9,9 +9,6 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 import os
 import sys
 import gc
-import subprocess
-import multiprocessing
-import requests
 import shutil
 import logging
 import time
@@ -20,14 +17,12 @@ import json
 import csv
 import pandas as pd
 from configparser import ConfigParser
-from urllib.parse import urlparse
-import docker
 from tqdm import tqdm
 from neo4j import GraphDatabase
 import torch
 
 import huggingface_hub
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, PromptTemplate
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
 from llama_index.core.storage.storage_context import StorageContext
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.settings import Settings
@@ -53,6 +48,7 @@ You always follow these rules:
     Rule 3: You always reply in a json format without any additional texts before or after the json.
     Rule 4: If you encounter rate limits, you will retry as many times as you need to get the answer.
     Rule 5: ATTENTION: You must always use the query engine tool to answer questions and ignore any previous conversation history.
+    Rule 6: Answer the question with the most semantically close phrase to the reference answer.
 """
 
 ################################ Configurations ################################
@@ -550,10 +546,10 @@ class ChatbotAgents:
         self.updateQueryEngine()
     
     def chatbot(self, queryStr, history):
-        messages = [
-            {"role": "system", "content": systemMessage},
-            {"role": "user", "content": queryStr},
-        ]
+        # messages = [
+        #     {"role": "system", "content": systemMessage},
+        #     {"role": "user", "content": queryStr},
+        # ]
         # The query should include instructions to output a JSON with the required keys.
         if self.enable_agent:
             chatOutput = self.selectedAgent.chat(queryStr, tool_choice="vector_rag_query_engine")
