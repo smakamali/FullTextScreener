@@ -6,6 +6,12 @@
 import os
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
+os.environ["HF_HOME"] = os.path.expanduser("~/.cache/huggingface")
+os.environ["TRANSFORMERS_CACHE"] = os.path.join(os.environ["HF_HOME"], "transformers")
+os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"], "datasets")
+os.environ["HF_METRICS_CACHE"] = os.path.join(os.environ["HF_HOME"], "metrics")
+os.environ["LLAMA_INDEX_CACHE_DIR"] = os.path.expanduser("~/.cache/llama_index")
+
 import os
 import sys
 import gc
@@ -52,7 +58,9 @@ You always follow these rules:
         - "justification": a short natural language explanation of why that answer was selected.
         - "evidence": the most semantically similar span or sentence(s) from the source text.
     Rule 5: Use the query engine to find relevant content for every question. Do not rely on prior interactions or history.
-    Rule 6: When selecting an answer, prefer the phrase that is semantically closest to the list of valid answers for the question (e.g., "Yes", "No", etc.).
+    Rule 6: 
+    - If the question expects a categorical answer (e.g., "Yes", "No", "Unsure"), choose the best matching label.
+    - If the question asks for a description, list, or procedure, write a short, meaningful answer based directly on document content. Avoid repeating placeholder phrases like “a description of the process”.
     Rule 7: For questions that ask for lists (e.g., evaluation measures or architectures), extract only items explicitly stated in the document.
     Rule 8: If a question refers to scope (e.g., "to which scope does it apply?"), infer only from direct or strongly implied evidence.
     Rule 9: If rate limits or tool errors occur, retry until the result is retrieved.
@@ -784,7 +792,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
             Include all valid short answers in your query string when using the query engine tool.
             Answer in English, in the following JSON format:
                 QuestionText: exactly repeat the question with short valid answers,
-                ShortAnswer: one of the valid short answers,
+                ShortAnswer: one of the valid short answers or extract only items explicitly stated in the document,
                 Reasoning: specify your reasoning or any additional notes for providing the answer,
                 Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
         )
@@ -853,7 +861,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         
         # Add delay after each paper except the last one
         if i < len(rows) - 1:
-            delay_minutes = 1
+            delay_minutes = 0
             delay_seconds = delay_minutes * 60
             print(f"\nProcessing completed for paper {i+1}/{len(rows)}. Waiting {delay_minutes} minutes before next paper...")
             time.sleep(delay_seconds)

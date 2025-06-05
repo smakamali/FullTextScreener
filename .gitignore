@@ -15,6 +15,7 @@ logs
 logs_temp
 output_temp
 output
+output*
 input
 form
 Evaluations - *
