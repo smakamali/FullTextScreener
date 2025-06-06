@@ -7,7 +7,7 @@
   "Q6": "Does the study include a significant experimental evaluation? (Valid short answers: Yes, No, Unsure)",
   "Q7": "How does the study evaluate robustness and its improvements? (Valid short answers: experimental evaluation, theoretical evaluation, Not provided, Not Applicable, Unsure)",
   "Q8": "How does the method of evaluation in the study improve robustness? (Valid short answers: a summary of the proposed approach, Not provided, Not Applicable, Unsure)",
-  "Q9": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: a list of the measures used, Not provided, Not Applicable, Unsure)",
+  "Q9": "What measures are used to evaluate robustness (implicitly or explicitly)? (Valid short answers: [a list of the measures used], Not provided, Not Applicable, Unsure)",
   "Q10": "Which benchmarks are used in the experimental evaluations? (Valid short answers: [a list of the benchmarks used (e.g., JOB, JOB-Ext, JOB-Light, TPC-DS, TPC-H, Stack, CEB, DSB, etc.)], Not provided, Not Applicable, Unsure)",
   "Q11": "Is the used benchmark real or synthetic? (Valid short answers: Real, Synthetic, Both, Not provided, Not Applicable, Unsure)",
   "Q12": "What characteristics are controlled in training data, query, or plan generation? (Valid short answers: [a list of the characteristics controlled e.g., distribution, selectivity, join patterns], Not provided, Not Applicable, Unsure)",
@@ -24,5 +24,5 @@
   "Q23": "Does the study recognize generalization to out-of-distribution as a criterion for robustness? (Valid short answers: Yes, No, Unsure)",
   "Q24": "Does it evaluate generalization to out-of-distribution? (Valid short answers: Yes, No, Unsure)",
   "Q25": "What model architecture is used in the proposed method? Do not include model architectures used only as a baseline. (Valid short answers: Multi-layer Perceptron (MLP), Recurrent Neural Network (RNN), Multi-set Convolutional Neural Network (MSCN), Tree-Convolutional Neural Network (TCNN), Tree-structured Long Short-Term Memory (Tree-LSTM), Boosted Decision Tree (BDT), Graph Neural Network (GNN), Transformer (Trm), Other, Not provided, Not Applicable, Unsure)",
-  "Q26": "Was enhancing robustness the primary motivation behind the model or encoding scheme design? (Valid short answers: Yes, No, Unsure)"
+  "Q26": "Does it use any other techniques for improving robustness? (Valid short answers: [a list of the techniques used], Not provided, Not Applicable, Unsure)"
 }
