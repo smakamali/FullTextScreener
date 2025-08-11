@@ -8,7 +8,7 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
 os.environ["HF_HOME"] = os.path.expanduser("~/.cache/huggingface")
 os.environ["TRANSFORMERS_CACHE"] = os.path.join(os.environ["HF_HOME"], "transformers")
-os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"], "datasets")
+os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"]a, "datasets")
 os.environ["HF_METRICS_CACHE"] = os.path.join(os.environ["HF_HOME"], "metrics")
 os.environ["LLAMA_INDEX_CACHE_DIR"] = os.path.expanduser("~/.cache/llama_index")
 
