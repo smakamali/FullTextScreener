@@ -1,0 +1,198 @@
+{
+  "Q1": {
+    "F1": 0.2593,
+    "ROUGE-1": 0.2593,
+    "ROUGE-L": 0.2593,
+    "BERTScore-F1": 0.2593,
+    "Count": 27
+  },
+  "Q2": {
+    "F1": 0.0484,
+    "ROUGE-1": 0.0522,
+    "ROUGE-L": 0.0394,
+    "BERTScore-F1": 0.2558,
+    "Count": 27
+  },
+  "Q3": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2573,
+    "Count": 27
+  },
+  "Q4": {
+    "F1": 0.2593,
+    "ROUGE-1": 0.2593,
+    "ROUGE-L": 0.2593,
+    "BERTScore-F1": 0.2593,
+    "Count": 27
+  },
+  "Q5": {
+    "F1": 0.1852,
+    "ROUGE-1": 0.1852,
+    "ROUGE-L": 0.1852,
+    "BERTScore-F1": 0.2961,
+    "Count": 27
+  },
+  "Q6": {
+    "F1": 0.2593,
+    "ROUGE-1": 0.2593,
+    "ROUGE-L": 0.2593,
+    "BERTScore-F1": 0.2962,
+    "Count": 27
+  },
+  "Q7": {
+    "F1": 0.1111,
+    "ROUGE-1": 0.1111,
+    "ROUGE-L": 0.1111,
+    "BERTScore-F1": 0.2677,
+    "Count": 27
+  },
+  "Q8": {
+    "F1": 0.037,
+    "ROUGE-1": 0.037,
+    "ROUGE-L": 0.037,
+    "BERTScore-F1": 0.2459,
+    "Count": 27
+  },
+  "Q9": {
+    "F1": 0.2593,
+    "ROUGE-1": 0.2593,
+    "ROUGE-L": 0.2593,
+    "BERTScore-F1": 0.3198,
+    "Count": 27
+  },
+  "Q10": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2394,
+    "Count": 27
+  },
+  "Q11": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2426,
+    "Count": 27
+  },
+  "Q12": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2597,
+    "Count": 27
+  },
+  "Q13": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2369,
+    "Count": 27
+  },
+  "Q14": {
+    "F1": 0.1923,
+    "ROUGE-1": 0.1923,
+    "ROUGE-L": 0.1923,
+    "BERTScore-F1": 0.3,
+    "Count": 26
+  },
+  "Q15": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2672,
+    "Count": 27
+  },
+  "Q16": {
+    "F1": 0.037,
+    "ROUGE-1": 0.037,
+    "ROUGE-L": 0.037,
+    "BERTScore-F1": 0.251,
+    "Count": 27
+  },
+  "Q17": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2553,
+    "Count": 27
+  },
+  "Q18": {
+    "F1": 0.0741,
+    "ROUGE-1": 0.0741,
+    "ROUGE-L": 0.0741,
+    "BERTScore-F1": 0.2909,
+    "Count": 27
+  },
+  "Q19": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.0,
+    "Count": 27
+  },
+  "Q20": {
+    "F1": 0.0185,
+    "ROUGE-1": 0.0185,
+    "ROUGE-L": 0.0185,
+    "BERTScore-F1": 0.2399,
+    "Count": 27
+  },
+  "Q21": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2414,
+    "Count": 27
+  },
+  "Q22": {
+    "F1": 0.1111,
+    "ROUGE-1": 0.1111,
+    "ROUGE-L": 0.1111,
+    "BERTScore-F1": 0.296,
+    "Count": 27
+  },
+  "Q23": {
+    "F1": 0.1111,
+    "ROUGE-1": 0.1111,
+    "ROUGE-L": 0.1111,
+    "BERTScore-F1": 0.2909,
+    "Count": 27
+  },
+  "Q24": {
+    "F1": 0.0185,
+    "ROUGE-1": 0.0185,
+    "ROUGE-L": 0.0185,
+    "BERTScore-F1": 0.2706,
+    "Count": 27
+  },
+  "Q25": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.244,
+    "Count": 27
+  },
+  "Q26": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.2283,
+    "Count": 27
+  },
+  "Q27": {
+    "F1": 0.0,
+    "ROUGE-1": 0.0,
+    "ROUGE-L": 0.0,
+    "BERTScore-F1": 0.0,
+    "Count": 27
+  },
+  "overall": {
+    "F1": 0.0732,
+    "ROUGE-1": 0.0734,
+    "ROUGE-L": 0.0729,
+    "BERTScore-F1": 0.2448,
+    "TotalAnswers": 728
+  }
+}

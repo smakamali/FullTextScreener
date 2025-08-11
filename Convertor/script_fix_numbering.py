@@ -9,7 +9,7 @@ for paper in data.values():
     answers = paper["answers"]
 
     # Skip if already has all 27 keys
-    if len(answers) == 27:
+    if len(answers) == 26:
         continue
 
     # Find missing question (assumed to be Q8 here)
