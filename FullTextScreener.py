@@ -8,7 +8,7 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 
 os.environ["HF_HOME"] = os.path.expanduser("~/.cache/huggingface")
 os.environ["TRANSFORMERS_CACHE"] = os.path.join(os.environ["HF_HOME"], "transformers")
-os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"]a, "datasets")
+os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"], "datasets")
 os.environ["HF_METRICS_CACHE"] = os.path.join(os.environ["HF_HOME"], "metrics")
 os.environ["LLAMA_INDEX_CACHE_DIR"] = os.path.expanduser("~/.cache/llama_index")
 
@@ -418,6 +418,33 @@ class QueryEngine:
 
 
 ################################ Chatbot Agents ################################
+
+# openrouter class
+# class OpenRouterLLM:
+#     def __init__(self, api_key, model_name, temperature=0.0, max_new_tokens=1024):
+#         self.api_key = api_key
+#         self.model_name = model_name
+#         self.temperature = temperature
+#         self.max_new_tokens = max_new_tokens
+
+#     def generate(self, prompt):
+#         import requests
+#         url = "https://openrouter.ai/api/v1/chat/completions"
+#         headers = {
+#             "Authorization": f"Bearer {self.api_key}",
+#             "Content-Type": "application/json"
+#         }
+#         payload = {
+#             "model": self.model_name,
+#             "messages": [{"role": "user", "content": prompt}],
+#             "temperature": self.temperature,
+#             "max_tokens": self.max_new_tokens
+#         }
+#         response = requests.post(url, headers=headers, json=payload)
+#         response.raise_for_status()
+#         data = response.json()
+#         return data["choices"][0]["message"]["content"]
+
 class ChatbotAgents:
     """
     Integrates the language model, query engine, and related tools.
@@ -425,7 +452,7 @@ class ChatbotAgents:
     """
     successMsg = 'Chatbot Agents updated successfully!'
     def __init__(self, configPath) -> None:
-        self.availableServices = ['huggingface', 'mistral',"llama3"]
+        self.availableServices = ['huggingface', 'mistral',"openrouter"]
         self.configPath = configPath
         self.config = Config(configPath)
         self.getConfigs()
@@ -434,6 +461,9 @@ class ChatbotAgents:
             self.getHuggingFaceLlmAndEmbedding()
         elif self.service == self.availableServices[1]:  # mistral
             self.getMistralLlmAndEmbedding()
+            # add open router
+        elif self.service == self.availableServices[2]:  # openrouter
+            self.getOpenRouterLlmAndEmbedding()
         else:
             raise ValueError(f'service must be in ({self.availableServices})')
         Settings.llm = self.llm
@@ -512,7 +542,29 @@ class ChatbotAgents:
             max_length=self.embedDim,
             trust_remote_code=True
         )
-    
+
+    def getOpenRouterLlmAndEmbedding(self):
+        from llama_index.llms.openrouter import OpenRouter
+
+        # LLM using OpenRouter API
+        self.llm = OpenRouter(
+            api_key=self.apiKey,
+            model=self.llmModel,
+            temperature=self.temperature,
+            max_tokens=self.max_new_tokens
+        )
+
+        # Embedding model (still from HuggingFace, you could swap if OpenRouter supports embeddings)
+        from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+        self.embedModel = HuggingFaceEmbedding(
+            model_name=self.embeddingModelName, 
+            max_length=self.embedDim,
+            trust_remote_code=True
+        )
+
+        print("OpenRouter LLM and embeddings loaded successfully.")
+
+        
     def getConfigs(self):
         self.inputDir = self.config.dir_structure['inputdir']
     

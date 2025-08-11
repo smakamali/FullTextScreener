@@ -34,3 +34,5 @@ accelerate
 transformers 
 llama-index-llms-huggingface
 bitsandbytes
+llama-index-llms-openrouter
+llama-index
