@@ -1,0 +1,6 @@
+Config/ConfigLitScrInUse
+neo4j_vol1
+input/
+.ipynb_checkpoints/
+.Modules/
+Config/ConfigLitScrInUse.cfg
