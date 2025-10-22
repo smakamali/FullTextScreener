@@ -4,3 +4,7 @@ input/
 .ipynb_checkpoints/
 .Modules/
 Config/ConfigLitScrInUse.cfg
+
+.env/
+.vscode/
+.DS_Store
