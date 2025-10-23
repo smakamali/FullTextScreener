@@ -1,38 +1,44 @@
+# PyTorch stack (CUDA 12.4)
 torch --extra-index-url https://download.pytorch.org/whl/cu124
 torchvision
 torchaudio
-llama-index
+
+# Core LlamaIndex packages (aligned versions)
 llama-index-llms-ollama
-ipython
 llama-index-graph-stores-neo4j
 llama-index-vector-stores-neo4jvector
-networkx
-pyvis
-gradio
-neo4j
-ipykernel
-docker
+
+llama-index>=0.13.0,<0.15
+llama-index-core>=0.13.0,<0.15
+llama-index-llms-openrouter==0.4.2
+llama-index-llms-huggingface>=0.4.0
+llama-index-embeddings-huggingface>=0.3.1
+
+# Other ML / AI libs
 transformers
-huggingface_hub[inference]
 sentence-transformers
-llama-index-embeddings-huggingface
-llama-index-llms-huggingface
-llama-index-llms-huggingface-api
+huggingface_hub[inference]
 optimum
 bitsandbytes
-protobuf
+accelerate
 sentencepiece
+protobuf
 mistralai
 mauve-text
-llama-index-llms-mistralai
-llama-index-embeddings-mistralai
+
+# Data + utilities
 pandas
 openpyxl
 pdfplumber
-sentence-transformers
-accelerate
-transformers 
-llama-index-llms-huggingface
-bitsandbytes
-llama-index-llms-openrouter
-llama-index
+networkx
+pyvis
+
+# Dev / runtime
+ipython
+ipykernel
+docker
+gradio
+neo4j
+
+
+langchain

@@ -45,6 +45,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from Modules.Readers import CustomCSVReader, CustomPDFReader
 from Modules.Tools import touch, deleteFolderContents, ensureFolderExists
 
+from llama_index.core import set_global_handler
+
+# disable token counting globally
+set_global_handler("simple")
+
 ################################ System Message ################################
 systemMessage = """
 You are a literature screening assistant. Your role is to analyze academic papers and provide structured answers to a predefined set of questions. Your answers must be based solely on the information in the provided document and must conform to the expected formats and standards below.
@@ -585,11 +590,12 @@ class ChatbotAgents:
                 description="ATTENTION: Always use this tool to answer questions, ignore your memory or any prior knowledge.",
             ),
         )
-        self.vectorAgent = ReActAgent.from_tools(
-            [self.vectorQueryEngineTool],
-            verbose=True,
+        self.vectorAgent = ReActAgent(
+            tools=[self.vectorQueryEngineTool],
+            llm=self.llm,
             max_iterations=self.max_iterations,
             prefix_messages=self.customPromptTemplate.message_templates,
+            verbose=True,
         )
     
     def appendIndex(self, vectorTopK, cutoffScore):
@@ -677,9 +683,14 @@ class ChatbotAgents:
                         self.llm._model.cpu()
                     del self.llm._model
                 
-                # Clear any tokenizer
-                if hasattr(self.llm, '_tokenizer'):
-                    del self.llm._tokenizer
+                # Clear tokenizer if it exists (only for HuggingFace LLMs)
+                tokenizer_attr = getattr(self.llm, "_tokenizer", None)
+                if tokenizer_attr is not None:
+                    try:
+                        delattr(self.llm, "_tokenizer")
+                    except Exception:
+                        pass
+
                     
                 # Delete the entire LLM instance
                 del self.llm

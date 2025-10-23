@@ -1,0 +1,132 @@
+{
+    "Q1": {
+        "avg_cosine_similarity": 0.6810169219970703,
+        "mauve_score": 0.20043603122308337,
+        "num_papers": 21
+    },
+    "Q2": {
+        "avg_cosine_similarity": 0.15293660759925842,
+        "mauve_score": 0.01761403705190754,
+        "num_papers": 22
+    },
+    "Q3": {
+        "avg_cosine_similarity": 0.21895161271095276,
+        "mauve_score": 0.5435460434927675,
+        "num_papers": 22
+    },
+    "Q4": {
+        "avg_cosine_similarity": 0.32414811849594116,
+        "mauve_score": 0.20043603122308337,
+        "num_papers": 21
+    },
+    "Q5": {
+        "avg_cosine_similarity": 0.9034858345985413,
+        "mauve_score": 0.981146272610004,
+        "num_papers": 22
+    },
+    "Q6": {
+        "avg_cosine_similarity": 0.9505918025970459,
+        "mauve_score": 0.9260781024104379,
+        "num_papers": 22
+    },
+    "Q7": {
+        "avg_cosine_similarity": 0.20505400002002716,
+        "mauve_score": 0.009860179301644982,
+        "num_papers": 22
+    },
+    "Q9": {
+        "avg_cosine_similarity": 0.05871650204062462,
+        "mauve_score": 0.009860179301644982,
+        "num_papers": 22
+    },
+    "Q10": {
+        "avg_cosine_similarity": 0.18153472244739532,
+        "mauve_score": 0.0924328858654038,
+        "num_papers": 22
+    },
+    "Q11": {
+        "avg_cosine_similarity": 0.5250082612037659,
+        "mauve_score": 0.009860179301644982,
+        "num_papers": 22
+    },
+    "Q12": {
+        "avg_cosine_similarity": 0.6103317141532898,
+        "mauve_score": 0.9998655423221855,
+        "num_papers": 20
+    },
+    "Q13": {
+        "avg_cosine_similarity": 0.1441996693611145,
+        "mauve_score": 0.028220550408907603,
+        "num_papers": 22
+    },
+    "Q14": {
+        "avg_cosine_similarity": 0.8301449418067932,
+        "mauve_score": 0.9253712309927983,
+        "num_papers": 22
+    },
+    "Q15": {
+        "avg_cosine_similarity": 0.9299360513687134,
+        "mauve_score": 0.9873304482920484,
+        "num_papers": 22
+    },
+    "Q16": {
+        "avg_cosine_similarity": 0.654313325881958,
+        "mauve_score": 0.9939975006949492,
+        "num_papers": 22
+    },
+    "Q17": {
+        "avg_cosine_similarity": 0.4562417268753052,
+        "mauve_score": 0.6444992831225902,
+        "num_papers": 22
+    },
+    "Q18": {
+        "avg_cosine_similarity": 0.8483782410621643,
+        "mauve_score": 0.990455000640264,
+        "num_papers": 22
+    },
+    "Q19": {
+        "avg_cosine_similarity": 0.5672403573989868,
+        "mauve_score": 0.45902165387079696,
+        "num_papers": 22
+    },
+    "Q20": {
+        "avg_cosine_similarity": 0.32461726665496826,
+        "mauve_score": 0.5582440683117804,
+        "num_papers": 22
+    },
+    "Q21": {
+        "avg_cosine_similarity": 0.27378907799720764,
+        "mauve_score": 0.1431659081476021,
+        "num_papers": 22
+    },
+    "Q22": {
+        "avg_cosine_similarity": 0.6333256363868713,
+        "mauve_score": 0.9745126730249447,
+        "num_papers": 22
+    },
+    "Q23": {
+        "avg_cosine_similarity": 0.6661514639854431,
+        "mauve_score": 0.18194886528091347,
+        "num_papers": 22
+    },
+    "Q24": {
+        "avg_cosine_similarity": 0.7133373022079468,
+        "mauve_score": 0.7024815453469206,
+        "num_papers": 22
+    },
+    "Q25": {
+        "avg_cosine_similarity": 0.40444740653038025,
+        "mauve_score": 0.9965113867289122,
+        "num_papers": 21
+    },
+    "Q26": {
+        "avg_cosine_similarity": 0.797696053981781,
+        "mauve_score": 0.5182012478497631,
+        "num_papers": 21
+    },
+    "Q27": {
+        "avg_cosine_similarity": 0.16519200801849365,
+        "mauve_score": 0.06296417242111021,
+        "num_papers": 17
+    }
+}
