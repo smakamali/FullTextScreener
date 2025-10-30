@@ -33,64 +33,61 @@
         "correct_short_answer": "The study improve robustness by using an attention-based estimator that featurizes the evolving database as updatable histograms (DB states), applies self-attention to capture joint attribute distributions, and uses cross-attention with query features, thus adapting estimates immediately when data changes."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": "End-to-end query execution time, Q-error, and P-error under dynamic (including distribution-shift) workloads."
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "STATS",
           "Joblight",
           "TPC-H"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": "Ratios of inserts/deletes/updates (2:1:1 for Insert-heavy, 1:1:2 for Update-heavy), and skewed distribution of inserted records in the Dist-shift workload. "
+      },
+      "Q13": {
+        "correct_short_answer": "Yes"
       },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generate its training data by executing a historical stream of queries (with intervening inserts/deletes/updates), updating the DB-state histograms accordingly, and pairing each query\u2019s featurization and current DB states with its true cardinality."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Data are encoded as fixed-dimensional histograms per attribute (DB states); queries are encoded by concatenating join-predicate bit-vectors and filter-range boundary vectors."
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Transformer (Trm)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": "Not provided"
       }
     }
@@ -129,9 +126,6 @@
         "correct_short_answer": "Balsa improves robustness in learned query optimization through five key techniques: (1) simulation-to-reality learning to gain broad plan space coverage before real execution, (2) dynamic timeouts to prevent learning stalls from disastrous plans, (3) safe exploration among only promising plans, (4) merging experiences from multiple independently trained agents to cover diverse optimization strategies, and (5) efficient on-policy learning to maximize plan exploration. These techniques enable Balsa to reliably generalize to unseen queries with different join patterns, even outperforming expert optimizers on challenging workloads."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "generalization to out-of-distirbution",
           "Runtime variance",
@@ -139,7 +133,7 @@
           "performance on challenging workloads"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "TPC-H",
@@ -147,10 +141,10 @@
           "JOB-Slow"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Number of joins",
           "Join templates",
@@ -161,46 +155,46 @@
           "Plan diversity via diversified experiences"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
+        "correct_short_answer": "Reinforcement learning"
       },
       "Q16": {
         "correct_short_answer": "Reinforcement learning"
       },
       "Q17": {
-        "correct_short_answer": "Reinforcement learning"
+        "correct_short_answer": "Yes"
       },
       "Q18": {
         "correct_short_answer": "Yes"
       },
       "Q19": {
-        "correct_short_answer": "Yes"
-      },
-      "Q20": {
         "correct_short_answer": "Balsa generates training data through three main processes: (1) simulation phase using dynamic programming to enumerate possible plans with a minimal cost model, (2) real execution phase by running actual query plans on the database engine and measuring latencies, and (3) diversified experiences by merging data from multiple independently trained agents. Throughout both phases, data augmentation is applied where each subplan generates a training example, while timeouts and safe exploration techniques ensure efficient learning."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Balsa encodes input samples using two main components: 1) query features represented as a vector mapping tables to their estimated selectivity values (with zeros for absent tables), and 2) plan features encoded using tree convolution networks that capture the hierarchical structure of query plans and their operators. These combined features serve as input to the value network, which is implemented as a tree convolution network with approximately 0.7M parameters."
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Tree-Convolutional Neural Network (TCNN)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "simulation learning",
           "safe execution",
@@ -245,9 +239,6 @@
         "correct_short_answer": "Dynamic query hint selection using reinforcement learning (via Thompson sampling) to steer the traditional optimizer to avoid the worst case"
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Query execution latency (median and tail)",
           "cost",
@@ -255,45 +246,48 @@
           "CPU time regret"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "Stack",
           "Corp"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "cache state",
           "hint set configurations"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Reinforcement learning"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "Collecting performance data from executing queries with different hint sets using PostgreSQL"
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "By binarizing query plan trees into vector trees using one-hot encoding with the operators, classical DBMS's estimated cost and cardinality informantion, and cache state information"
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -302,15 +296,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Tree-Convolutional Neural Network (TCNN)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "DBA-triggered exploration for performance-critical queries",
           "parallel hint set evaluation"
@@ -352,23 +343,20 @@
         "correct_short_answer": "The study improves robustness by introducing BayesCard, a framework that leverages Bayesian network models within probabilistic programming languages to build an ensemble of models, combined with progressive sampling and compiled variable elimination inference, ensuring stable and efficient cardinality estimation under diverse data conditions."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Q-error quantiles (50%, 90%, 95%, 100%)"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "Single-table: DMV, CENSUS, SYNTHETIC",
           "Multi-table: IMDB benchmark (JOB-light queries and synthesized JOB-comp workload)"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "data distribution skewness",
           "attribute correlation",
@@ -376,29 +364,32 @@
           "number of attributes (scale)"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Unsupervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Other"
+      },
+      "Q17": {
+        "correct_short_answer": "No"
       },
       "Q18": {
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "No"
-      },
-      "Q20": {
         "correct_short_answer": "By drawing unbiased samples from full outer joins of tables for ensemble construction and by synthesizing selection queries via uniform random predicates (continuous range bounds or categorical value sets) per attribute."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Not applicable"
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -407,15 +398,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Other"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "an ensemble construction based on table-dependency budgets",
           "graph-reduction optimization",
@@ -459,16 +447,13 @@
         "correct_short_answer": "CORDS improves query optimization robustness by automatically detecting correlations and soft functional dependencies between database columns that would otherwise lead to catastrophic selectivity estimation errors. By recommending column-group statistics for strongly correlated columns, it prevents optimizers from making naive independence assumptions that can cause query plans to be orders of magnitude slower than necessary. Experimental results show CORDS dramatically reduces worst-case execution times by an order of magnitude, while requiring minimal system overhead through efficient sampling techniques and strategic pruning of candidate column pairs."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "tail-end q-error",
           "tail-end Speedup",
           "misclassification of correlated columns"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "TPC-H",
           "Accidents",
@@ -476,10 +461,10 @@
           "Auto"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Synthetic"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "correlation strength",
           "functional dependency strength",
@@ -489,11 +474,14 @@
           "adjustment factor thresholds"
         ]
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "Yes"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
@@ -523,12 +511,9 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q25": {
-        "correct_short_answer": "Not Applicable"
-      },
-      "Q26": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": ""
       }
     }
@@ -567,9 +552,6 @@
         "correct_short_answer": "The study introduces HybridQO, which uses a Monte Carlo Tree Search\u2013guided, learning-based join-order estimator to generate leading hints, supplements these hints via a traditional cost-based optimizer to form candidate plans, and applies an uncertainty-aware performance predictor to filter out high-uncertainty plans, thereby adapting to out-of-distribution queries."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Total latency",
           "Tail-latency percentiles (50%, 75%, 99%, 99.5%)",
@@ -577,7 +559,7 @@
           "Q-error distributions analyzed across uncertainty buckets"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "JOB-EXT",
@@ -585,39 +567,42 @@
           "Stack"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Real"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Leading-hint length",
           "Dynamic workload template addition",
           "Number of relations per query"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generates its training data by running sample workloads on the DBMS, extracting each executed plan\u2019s join order and actual execution time, and using these as (feature, label) pairs"
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Query encoding: Flattened join-matrix (n\u00d7n) plus filter-selectivity vector, Join order encoding: Sequence of table embeddings fed through an LSTM, Plan encoding: Operator, table, and cost-model one-hot/real-valued features composed into a Tree-LSTM"
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -626,15 +611,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Recurrent Neural Network (RNN), Tree-structured Long Short-Term Memory (Tree-LSTM)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "Monte Carlo Tree Search for hint exploration",
           "Uncertainty-aware plan selection to avoid high-risk plans",
@@ -677,60 +659,57 @@
         "correct_short_answer": "No"
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": "No"
       },
       "Q10": {
-        "correct_short_answer": "No"
-      },
-      "Q11": {
         "correct_short_answer": "JOB"
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "real"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": "90% for training and 10% for testing."
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "No"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "Yes"
+      },
+      "Q15": {
+        "correct_short_answer": "Deep Reinforcement Learning (DRL)"
       },
       "Q16": {
         "correct_short_answer": "Deep Reinforcement Learning (DRL)"
       },
       "Q17": {
-        "correct_short_answer": "Deep Reinforcement Learning (DRL)"
-      },
-      "Q18": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "They use JOB and use 103 out of 113 queries for training and 10 for testing."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study uses fully connected layer and use binary subtree to capture tree structure data."
+      },
+      "Q21": {
+        "correct_short_answer": "No"
       },
       "Q22": {
         "correct_short_answer": "No"
       },
       "Q23": {
-        "correct_short_answer": "No"
-      },
-      "Q24": {
         "correct_short_answer": "Yes"
       },
-      "Q25": {
+      "Q24": {
         "correct_short_answer": "Fully conncted layer."
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": "No"
       }
     }
@@ -769,9 +748,6 @@
         "correct_short_answer": "Fauce improves robustness in cardinality estimation through four key innovations: a sophisticated query featurization method that captures real correlations between database columns and tables, uncertainty quantification that provides confidence levels for estimates, a deep ensemble learning approach that combines multiple neural networks, and an uncertainty management system that identifies when estimates are unreliable. Crucially, Fauce includes a fall-back mechanism that triggers when uncertainties are high, storing problematic queries in a buffer for incremental learning and using sampling techniques to generate additional training data. This adaptive approach makes Fauce significantly more accurate (1.3\u00d7-6.7\u00d7 lower error rates) and faster (10\u00d7 faster inference) than existing methods, especially for complex queries."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "q_error (50th, 75th, 90th, 95th, 99th percentiles)",
           "Correlation between Uncertainty and Error",
@@ -781,7 +757,7 @@
           "Inference time"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "JOB-more-filters",
@@ -797,10 +773,10 @@
           "Spots"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": ""
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Generality",
           "Diversity",
@@ -814,29 +790,32 @@
           "Comparison operators"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generates training data through a systematic process that ensures both generality and diversity. Queries are uniformly distributed across join graphs derived from the database schema. For each query, a tuple is drawn from inner join results, the number of predicates is randomly chosen (between 2 and the number of available columns), specific columns are randomly selected, and appropriate comparison operators (range or equality) are assigned. This method creates a comprehensive set of multi-predicate queries with varying cardinalities that cover the query space effectively."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encodes query samples through a novel query featurization method that transforms queries into informative feature vectors. Instead of using traditional one-hot or binary encoding, Fauce employs a graph-based approach that captures semantic relationships. Tables are encoded using a graph embedding method based on the join schema, joins are encoded using a custom Joins2Vec algorithm that represents join relationships as vectors, and columns are encoded through a Columns2Vec method that builds dependency graphs to capture real correlations between database columns. These encoding methods, combined with statistical information about predicate values, create comprehensive feature vectors that better represent query characteristics for the regression model."
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -845,15 +824,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Multi-layer Perceptron (MLP)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "Deep ensembles",
           "Uncertainty quantification",
@@ -901,21 +877,18 @@
         "correct_short_answer": "The study improves robustness through the SEER (Selectivity-Estimate-Error-Resistance) algorithm, which replaces error-sensitive plan choices with more stable alternatives. SEER works by reducing complex plan diagrams (visual representations of optimizer plan choices across the selectivity space) to simpler anorexic versions containing fewer plans. "
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": "Selectivity Error Resistance Factor (SERF)"
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "TPC-H",
           "TPC-DS"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Synthetic"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Query location distribution",
           "Physical design configurations",
@@ -924,23 +897,26 @@
           "Database size and distribution"
         ]
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "Yes"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
       },
       "Q17": {
-        "correct_short_answer": "Not Applicable"
+        "correct_short_answer": "No"
       },
       "Q18": {
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "No"
+        "correct_short_answer": "Not Applicable"
       },
       "Q20": {
         "correct_short_answer": "Not Applicable"
@@ -958,12 +934,9 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q25": {
-        "correct_short_answer": "Not Applicable"
-      },
-      "Q26": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "Plan diagram reduction",
           "Foreign-plan-costing feature",
@@ -1007,54 +980,54 @@
         "correct_short_answer": "The study improves robustness by incorporating robust neural network prediction techniques, such as Spectral-normalized Neural Gaussian Processes (SNGPs), to accurately quantify prediction confidence and fall back to the database\u2019s query optimizer when uncertain. This approach helps decrease tail latency and reduce query regressions, ensuring that the system can handle dynamic workloads and out-of-distribution (OOD) inputs effectively. The use of Row Count Evolution (RCE) to generate a diverse set of candidate plans by perturbing sub-plan cardinality estimates."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Execution speedup ratios",
           "Regression frequency",
           "Tail latency improvements"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "TPC-H",
           "Stack"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": ""
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Perturbation hyperparameters",
           "Execution conditions (Warm-cache simulation, Adaptive timeout settings)",
           "Plan pruning criteria"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Classification"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generates its training data by using the Row Count Evolution (RCE) algorithm to produce candidate plans for each query instance, which are then executed multiple times on a training workload with adaptive timeouts simulating warm-cache conditions to record actual execution latencies."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encodes the samples using standard preprocessing techniques for each type: embeddings for strings/low-dimensional integer features, normalization to N(0,1) for numerics, and numeric conversion for date/time features."
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -1063,15 +1036,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Multi-layer Perceptron (MLP)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "fallback mechanism",
           "adaptive timeouts",
@@ -1116,9 +1086,6 @@
         "correct_short_answer": "By using deep learning to predict query cardinalities in situations where sampling-based approaches fail, particularly in '0-tuple situations', and by learning join-crossing correlations from data."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "tail-end q-error",
           "performance on challenging workloads",
@@ -1126,17 +1093,17 @@
           "generalization to out-of-distirbution"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB-light",
           "Synthetic workload",
           "Scale workload"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "number of joins",
           "number of predicates",
@@ -1146,46 +1113,46 @@
           "query uniqueness"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "Generates random queries based on schema information with literals drawn from actual DB values, executes them to get true cardinalities, and enriches with sample information."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Represents queries as collections of sets with tables encoded as one-hot vectors, joins as one-hot vectors, and predicates as a combination of one-hot encoded columns/operators with normalized values, optionally enhanced with sample bitmaps."
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Multi-set Convolutional Neural Network (MSCN)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": ""
       }
     }
@@ -1224,7 +1191,7 @@
         "correct_short_answer": ""
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": ""
       },
       "Q10": {
         "correct_short_answer": ""
@@ -1275,9 +1242,6 @@
         "correct_short_answer": ""
       },
       "Q26": {
-        "correct_short_answer": ""
-      },
-      "Q27": {
         "correct_short_answer": ""
       }
     }
@@ -1316,9 +1280,6 @@
         "correct_short_answer": "The study improves robustness by introducing several key strategies: 1. Utilizing Graph Transformer (GT) to capture relationships between tables and predicates, enhancing query representation. 2. Implementing Restricted Operator Search Space (ROSS) to leverage DBMS expertise to forbid particularly poor operators rather than selecting operators freely, reducing search risk. 3. Employing \u03b5-beam search for adaptive exploration, which combines beam search with \u03b5-greedy exploration to balance guided and random exploration across multiple paths. 4. Introducing reward weighting and log transformation in the loss function to stabilize reward values and reduce the impact of poor operators on performance."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "WRL (Workload Relative Latency)",
           "GMRL (Geometric Mean Relative Latency)",
@@ -1326,17 +1287,17 @@
           "Training stability metrics (e.g. standard deviation of WRL in later epochs)"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "TPC-DS",
           "Stack Overflow"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Query templates and sizes",
           "Data generation splits",
@@ -1345,29 +1306,32 @@
           "Timeout limits"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Reinforcement learning"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generates its training data by bootstrapping an experience dataset by first using the DBMS optimizer to generate expert plans for each training query, then iteratively exploring via \u03b5-beam search, executing generated plans to collect latency rewards and updating a replay buffer. "
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Query samples are encoded as join graphs where node features combine learned table embeddings, column\u2011level statistics, and predicate vectors; a Graph Transformer produces query representations. Subplans are encoded via Tree\u2011LSTM over join trees, and restricted\u2011operator embeddings are averaged into an operator representation."
+      },
+      "Q21": {
+        "correct_short_answer": "No"
       },
       "Q22": {
         "correct_short_answer": "No"
@@ -1376,15 +1340,12 @@
         "correct_short_answer": "No"
       },
       "Q24": {
-        "correct_short_answer": "No"
-      },
-      "Q25": {
         "correct_short_answer": ""
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "restricted operator search space (ROSS)",
           "\u03b5-beam search",
@@ -1428,16 +1389,13 @@
         "correct_short_answer": "Neo leverages reinforcement learning to iteratively retrain a deep value network that is initially bootstrapped from an expert optimizer and continuously updated using actual query latencies. This process adapts plan selection and reduces sensitivity to estimation errors. In addition, Neo employs word2vec-based row vectors to automatically capture query predicate semantics from the underlying database, allowing the model to effectively handle unseen predicates based on their semantic similarity."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "normalized query latency",
           "variance of cost predictions under cardinality estimation errors",
           "performance on unseen queries"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "Ext-JOB",
@@ -1445,54 +1403,54 @@
           "Corp"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "preficate featurizations (via 1-Hot, Histograms, or R-Vector encodings (with join or no join))"
         ]
+      },
+      "Q13": {
+        "correct_short_answer": "Yes"
       },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Reinforcement learning"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "Training data is generated by bootstrapping from an expert optimizer (PostgreSQL): run a sample workload to produce query plans, execute them on the target engine, and record the resulting latencies."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Samples are encoded in two parts: (a) a query encoding that represents the join graph and predicates (using 1-Hot, Hist, or R-Vector representations) and (b) a plan encoding that converts the execution plan into a tree of vectors (capturing join types and scan types) processed via tree convolution"
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Tree-Convolutional Neural Network (TCNN)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "No"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "Bootstrapping from an expert optimizer",
           "reinforcement learning with iterative value model retraining",
@@ -1537,7 +1495,7 @@
         "correct_short_answer": ""
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": ""
       },
       "Q10": {
         "correct_short_answer": ""
@@ -1588,9 +1546,6 @@
         "correct_short_answer": ""
       },
       "Q26": {
-        "correct_short_answer": ""
-      },
-      "Q27": {
         "correct_short_answer": ""
       }
     }
@@ -1629,7 +1584,7 @@
         "correct_short_answer": ""
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": ""
       },
       "Q10": {
         "correct_short_answer": ""
@@ -1680,9 +1635,6 @@
         "correct_short_answer": ""
       },
       "Q26": {
-        "correct_short_answer": ""
-      },
-      "Q27": {
         "correct_short_answer": ""
       }
     }
@@ -1721,9 +1673,6 @@
         "correct_short_answer": "The study improves robustness through three main techniques: query masking during training, join bitmaps for better feature representation, and techniques to handle data updates with shuffled bitmaps"
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Q-Error",
           "Query Runtime",
@@ -1734,7 +1683,7 @@
           "Feature importance analyses"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "CEB",
@@ -1742,10 +1691,10 @@
           "ErgastF1"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Query complexity (number of joins/tables)",
           "Query templates",
@@ -1755,46 +1704,46 @@
           "Correlation between variables"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "he study uses existing benchmark query workloads and executes them to collect both the full query cardinalities and all subplan cardinalities."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encodes queries using a combination of query features (one-hot vectors for tables, joins, and columns), data features (DBMS estimates), and sampling features (join bitmaps)."
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Multi-set Convolutional Neural Network (MSCN)"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": ""
       }
     }
@@ -1833,7 +1782,7 @@
         "correct_short_answer": ""
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": ""
       },
       "Q10": {
         "correct_short_answer": ""
@@ -1884,9 +1833,6 @@
         "correct_short_answer": ""
       },
       "Q26": {
-        "correct_short_answer": ""
-      },
-      "Q27": {
         "correct_short_answer": ""
       }
     }
@@ -1925,9 +1871,6 @@
         "correct_short_answer": "The study proposes three novel robustness metrics (cardinality-slope, selectivity-slope, and cardinality-integral) to quantify plan sensitivity to estimation errors, then uses these metrics in a new plan selection strategy that considers both cost and robustness when choosing execution plans."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "cost error factor (c_err)",
           "cost error factor improvement (\u0394c_err)",
@@ -1936,16 +1879,16 @@
           "speedup/regression factors"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "Synthetic benchmark"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "base table cardinalities",
           "join cardinalities",
@@ -1956,11 +1899,14 @@
           "number of tables"
         ]
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "Yes"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
@@ -1990,12 +1936,9 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q25": {
-        "correct_short_answer": "Not Applicable"
-      },
-      "Q26": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": ""
       }
     }
@@ -2034,9 +1977,6 @@
         "correct_short_answer": "The study improves robustness by using a risk-aware learned cost model that predicts both the expected execution time and the associated uncertainties. It quantifies plan, estimation, and suboptimality risks and incorporates these into risk-aware plan selection strategies. These strategies select plans not just based on expected cost but also on their risk profiles, ensuring more reliable performance across varying conditions."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Tail-end suboptimality",
           "Tail-end q-error",
@@ -2046,17 +1986,17 @@
           "Performance on challenging workloads"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "CEB",
           "TPC-DS"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Number of joins",
           "Join types (inner, outer, left/right outer, anti-join)",
@@ -2068,29 +2008,32 @@
           "Join-crossing correlations"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The data generation process involves three benchmarks: JOB with 113 complex queries on the IMDB dataset, CEB with 1000 randomly sampled queries from various templates, and an extended TPC-DS with 13,000 synthetic queries featuring diverse join patterns. For each query, multiple execution plans were generated using 13 different hint sets to create a diverse plan space. Each query-plan pair was executed to measure actual runtime, which became the ground truth label. The data was preprocessed through null imputation, min-max scaling, and logarithmic transformation to prepare it for the machine learning model. This process created comprehensive training datasets that capture the relationship between queries, execution plans, and their actual performance."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encodes queries and plans using a two-part approach: queries are represented as join graphs with table statistics as node attributes and join characteristics as edge attributes, while execution plans are encoded as vectorized trees with operator types encoded using one-hot encoding."
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -2099,19 +2042,16 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": [
           "Multi-layer Perceptron (MLP)",
           "Tree-Convolutional Neural Network (TCNN)",
           "Graph Neural Network (GNN)"
         ]
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": "The study improves query optimization robustness through several key techniques. It develops a framework to quantify three types of risk (plan, estimation, and suboptimality) using approximate probabilistic machine learning with Monte Carlo Dropout for uncertainty estimation. Building on this, it introduces risk-aware plan selection strategies including conservative selection, suboptimality risk minimization, and search space pruning to avoid risky plans. The approach is implemented through an enhanced model architecture that combines Graph Neural Networks and Tree Convolutional Neural Networks to better represent database queries and execution plans, while explicitly predicting both the expected execution time and its associated uncertainty."
       }
     }
@@ -2146,9 +2086,8 @@
       "Q7": {
         "correct_short_answer": ""
       },
-      "Q8": {},
       "Q9": {
-        "correct_short_answer": "Not provided"
+        "correct_short_answer": ""
       },
       "Q10": {
         "correct_short_answer": ""
@@ -2159,7 +2098,7 @@
       "Q12": {
         "correct_short_answer": ""
       },
-      "Q13": {
+      "Q14": {
         "correct_short_answer": ""
       },
       "Q15": {
@@ -2237,53 +2176,53 @@
         "correct_short_answer": "The study improves rebustness by using reinforcement learning (the UCT algorithm) to learn optimal join orders on-the-fly, dividing query execution into small time slices, adaptively balancing exploration and exploitation, and employing three variants: Skinner-G (generic engine + timeout pyramid scheme), Skinner-H (hybrid with the traditional optimizer), Skinner-C (custom engine with fast multi-way joins and state sharing)."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Additive regret: expected execution cost minus optimal execution cost",
           "Relative regret: expected execution cost divided by optimal execution cost"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "TPC-H"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Batch partitioning: each table is split into a fixed number of batches (parameter b)",
           "Timeout levels: powers-of-two time budgets are iterated via a pyramid scheme",
           "Query shape: number of joined tables and predicate types (including UDFs for robustness tests)"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Reinforcement learning"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Other"
+      },
+      "Q17": {
+        "correct_short_answer": "No"
       },
       "Q18": {
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "No"
-      },
-      "Q20": {
         "correct_short_answer": "Training data is generated on-the-fly by executing different join orders in time slices, measuring progress (e.g., number of tuples processed) per slice, and using those measurements as rewards for the RL algorithm."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Join orders are encoded as paths in a UCT search tree, where each node represents selecting the next table in the join order. Execution states are summarized by tuple-index vectors."
+      },
+      "Q21": {
+        "correct_short_answer": "No"
       },
       "Q22": {
         "correct_short_answer": "No"
@@ -2292,15 +2231,12 @@
         "correct_short_answer": "No"
       },
       "Q24": {
-        "correct_short_answer": "No"
-      },
-      "Q25": {
         "correct_short_answer": "Other"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "a pyramid timeout scheme (iterating over powers-of-two budgets) to bound per-slice cost",
           "a hybrid algorithm that alternates learned plans with the traditional optimizer",
@@ -2345,9 +2281,6 @@
         "correct_short_answer": "by introducing Smooth Scan, an adaptive access path operator that morphs between index scan and full table scan based on data distribution observed at runtime, without relying on statistics."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "competitive ratio",
           "performance across full selectivity spectrum",
@@ -2358,27 +2291,30 @@
           "performance on TPC-H queries with cardinality estimation errors"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "micro-benchmark",
           "TPC-H"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Synthetic"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "data selectivity",
           "data distribution",
           "data skew"
         ]
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "yes"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
@@ -2408,12 +2344,9 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q25": {
-        "correct_short_answer": "Not Applicable"
-      },
-      "Q26": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": ""
       }
     }
@@ -2452,60 +2385,57 @@
         "correct_short_answer": "The study improve robustness by pruning unnecessary data to enhance the quality of the plan."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": "Robustness is measured as the correctness of cardinality estimation. So the gap bettwen the true cardinality and estimated cardinality is the metric for measuring robustness."
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": "[TPC-H, JOB, DHR]"
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": "data ranges of joined attributes, number of joined tables, redundant degree of data, size of unnecessary data"
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "Not all experiments designed to evaluate robustness, they evaluate robustness using gap between estimated cardinality and true cardinality."
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
       },
       "Q17": {
-        "correct_short_answer": "Not Applicable"
+        "correct_short_answer": "No"
       },
       "Q18": {
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "No"
-      },
-      "Q20": {
         "correct_short_answer": "For DHR, the study built 10 tables, and each table contains 6 attributions. The study then using 9 query templates to generate query, with increased scale of size."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "Not Applicable"
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "Yes"
+      },
+      "Q22": {
+        "correct_short_answer": "No"
       },
       "Q23": {
         "correct_short_answer": "No"
       },
       "Q24": {
-        "correct_short_answer": "No"
-      },
-      "Q25": {
         "correct_short_answer": "Not Applicable"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": "Hollow Range (HR), alpha-beta pruning strategy, Transitive closures, Cardinality estimation, Predicate push-down, Algebraic equivalence"
       }
     }
@@ -2544,9 +2474,6 @@
         "correct_short_answer": "The study improves robustness by developing a probability-based cardinality estimation technique that explicitly accounts for uncertainty. Their approach uses Bayesian inference with precomputed random samples to derive probability distributions for query selectivity, rather than single-point estimates. They introduce a confidence threshold parameter that lets users specify their preferred tradeoff between performance and predictability. Higher confidence thresholds favor more predictable plans with consistent execution times, while lower thresholds favor potentially faster but riskier plans. This approach avoids the attribute value independence assumption, captures multi-dimensional correlations, and enables the query optimizer to make better decisions by acknowledging uncertainties rather than ignoring them.RetryClaude can make mistakes. Please double-check responses."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "Average query execution time",
           "Standard deviation of query execution time",
@@ -2556,15 +2483,15 @@
           "Plan selection quality when attribute value independence assumptions are violated"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "TPC-H"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "synthetic"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Query selectivity",
           "Sample size",
@@ -2572,11 +2499,14 @@
           "Correlation between query predicates"
         ]
       },
-      "Q14": {
+      "Q13": {
         "correct_short_answer": "Yes"
       },
-      "Q15": {
+      "Q14": {
         "correct_short_answer": "No"
+      },
+      "Q15": {
+        "correct_short_answer": "Not Applicable"
       },
       "Q16": {
         "correct_short_answer": "Not Applicable"
@@ -2594,10 +2524,10 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q21": {
-        "correct_short_answer": "Not Applicable"
+        "correct_short_answer": "Yes"
       },
       "Q22": {
-        "correct_short_answer": "Yes"
+        "correct_short_answer": "Not Applicable"
       },
       "Q23": {
         "correct_short_answer": "Not Applicable"
@@ -2606,12 +2536,9 @@
         "correct_short_answer": "Not Applicable"
       },
       "Q25": {
-        "correct_short_answer": "Not Applicable"
-      },
-      "Q26": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": "The study improves robustness through a Bayesian approach to cardinality estimation that models uncertainty explicitly. Key techniques include using precomputed random samples instead of histograms, deriving probability distributions for query selectivity rather than point estimates, and introducing a configurable confidence threshold parameter that allows users to control the trade-off between performance and predictability. The approach integrates with existing query optimizer architecture while enabling more robust query plans by acknowledging estimation uncertainties rather than ignoring them."
       }
     }
@@ -2650,16 +2577,13 @@
         "correct_short_answer": "The study improves robustness by employing the Neural Network Gaussian Process (NNGP) estimator, which provides principled uncertainty calibration for predictions and uses a nonparametric kernel to smooth predictions, yielding stability under workload shifts. This approach helps in handling workload shifts and ensures that the model remains accurate and reliable under varying conditions."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "q-error",
           "mean-squared-error (MSE)",
           "Coefficient of variation (uncertainty) ."
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "forest",
           "higgs",
@@ -2667,10 +2591,10 @@
           "TPC-H"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "Total number of training queries (1K, 2K, 4K, 8K)",
           "Number of selection predicates per query",
@@ -2678,29 +2602,32 @@
           "Fraction of queries with fewer vs. more predicates/joins"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
       },
-      "Q18": {
+      "Q17": {
         "correct_short_answer": "Yes"
       },
-      "Q19": {
+      "Q18": {
         "correct_short_answer": "No"
       },
-      "Q20": {
+      "Q19": {
         "correct_short_answer": "The study generates its training data by: In single-relation forest and higgs: For each d \u2208 [2\u2026D], uniformly sample d attributes and values per a data-centric distribution, generate 2 K queries. For join queries, each t \u2208 [0\u2026|T|\u22121], sample a starting relation then traverse the join graph for t steps, adding independent selection conditions; generate 4 K (TPC-H) or 3 K (TPC-DS) queries, then execute to collect true cardinalities."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encodes the samples by following the existing work, where a select-project-join query is encoded by a fixed length vector. The encoding consists of two parts: the selection conditions and the join conditions. The two parts are encoded separately and concatenated. For selection conditions, the encoding of all the attributes in all the relations of the schema are concatenated by a fixed order (e.g., lexicographical order). For range filters on numerical attributes, the lower and upper bounds are normalized to [0,1]. For IN filters on categorical attributes, a bitmap representation is used. For join conditions, each joinable attribute pair is encoded using a 3-bit bitmap corresponding to the 3 comparison operators <, =, >. The bitmap '000' denotes that the query is free of join condition on the pair."
+      },
+      "Q21": {
+        "correct_short_answer": "Yes"
       },
       "Q22": {
         "correct_short_answer": "Yes"
@@ -2709,15 +2636,12 @@
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": "Other"
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": "Yes"
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "Bayesian uncertainty calibration via NNGP",
           "Nonparametric kernel learning to smooth predictions",
@@ -2760,9 +2684,6 @@
         "correct_short_answer": "The study improves robustness by introducing zero-shot cost models that pre-train on a variety of databases using a transferable graph-based query representation, separate database-dependent characteristics (e.g., cardinalities, tuple widths) as explicit inputs, and support few-shot fine-tuning on a small number of queries for new databases."
       },
       "Q9": {
-        "correct_short_answer": "Not provided"
-      },
-      "Q10": {
         "correct_short_answer": [
           "median Q-error",
           "95th percentile Q-error",
@@ -2770,7 +2691,7 @@
           "generalization error"
         ]
       },
-      "Q11": {
+      "Q10": {
         "correct_short_answer": [
           "JOB",
           "JOB-light",
@@ -2796,10 +2717,10 @@
           "Walmart"
         ]
       },
-      "Q12": {
+      "Q11": {
         "correct_short_answer": "Both"
       },
-      "Q13": {
+      "Q12": {
         "correct_short_answer": [
           "schema diversity across 20 heterogeneous databases",
           "join complexity (controlled number of relations per query)",
@@ -2813,49 +2734,49 @@
           "benchmark integration (including JOB, JOB-light, SSB, TPC-H alongside custom workloads)"
         ]
       },
+      "Q13": {
+        "correct_short_answer": "Yes"
+      },
       "Q14": {
         "correct_short_answer": "Yes"
       },
       "Q15": {
-        "correct_short_answer": "Yes"
-      },
-      "Q16": {
         "correct_short_answer": "Supervised"
       },
-      "Q17": {
+      "Q16": {
         "correct_short_answer": "Regression"
+      },
+      "Q17": {
+        "correct_short_answer": "Yes"
       },
       "Q18": {
         "correct_short_answer": "Yes"
       },
       "Q19": {
-        "correct_short_answer": "Yes"
-      },
-      "Q20": {
         "correct_short_answer": "The study generate its training data by running 15000 generated queries per database, using a workload generator (SPAJ, complex, and index modes) on Postgres v12, to collect plans and actual runtimes across 20 databases."
       },
-      "Q21": {
+      "Q20": {
         "correct_short_answer": "The study encode the samples as graphs where nodes represent operators, tables, columns, and predicates annotated with transferable features, processed via node-type MLPs and bottom-up message passing (in GNN)."
       },
-      "Q22": {
+      "Q21": {
         "correct_short_answer": "No"
+      },
+      "Q22": {
+        "correct_short_answer": "Yes"
       },
       "Q23": {
         "correct_short_answer": "Yes"
       },
       "Q24": {
-        "correct_short_answer": "Yes"
-      },
-      "Q25": {
         "correct_short_answer": [
           "Multi-layer Perceptron (MLP)",
           "Graph Neural Network (GNN)"
         ]
       },
-      "Q26": {
+      "Q25": {
         "correct_short_answer": ""
       },
-      "Q27": {
+      "Q26": {
         "correct_short_answer": [
           "separation of concerns by providing explicit database characteristics as model inputs",
           "fallback to traditional or data-driven cardinality estimates when needed",

@@ -17,7 +17,7 @@
   "Q16": "What is the machine learning category of the proposed method? (Short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Unsure)",
   "Q17": "Does the method use deep learning models? (Short answers: Yes, No, Unsure)",
   "Q18": "Does the approach use transfer learning? (Short answers: Yes, No, Unsure)",
-  "Q29": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
+  "Q19": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
   "Q20": "How are input samples represented or encoded in the study (e.g., feature vectors, trees, graphs)? If the encoding process is not discussed, say 'Not provided'.",
   "Q21": "Does the study handle predictive uncertainty in any way? (Short answers: Yes, No, Unsure)",
   "Q22": "Does the study consider generalization to out-of-distribution data as part of robustness? (Short answers: Yes, No, Unsure)",
