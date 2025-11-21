@@ -65,7 +65,7 @@
         "Evidence": "Extensive experimental results show that ALECE clearly outperforms the state-of-the-art alternatives in terms of multiple evaluation metrics."
       },
       "Q8": {
-        "correct_short_answer": "The study improve robustness by using an attention-based estimator that featurizes the evolving database as updatable histograms (DB states), applies self-attention to capture joint attribute distributions, and uses cross-attention with query features, thus adapting estimates immediately when data changes.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The ALECE method is designed to handle dynamic workloads effectively, which suggests an enhancement in robustness compared to existing models.",
@@ -275,7 +275,7 @@
         "Evidence": "Not Applicable"
       },
       "Q8": {
-        "correct_short_answer": "Balsa improves robustness in learned query optimization through five key techniques: (1) simulation-to-reality learning to gain broad plan space coverage before real execution, (2) dynamic timeouts to prevent learning stalls from disastrous plans, (3) safe exploration among only promising plans, (4) merging experiences from multiple independently trained agents to cover diverse optimization strategies, and (5) efficient on-policy learning to maximize plan exploration. These techniques enable Balsa to reliably generalize to unseen queries with different join patterns, even outperforming expert optimizers on challenging workloads.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by using a value function approach that estimates the overall cost/latency of executing a query, which enhances the accuracy and efficiency of query optimization.",
@@ -499,7 +499,7 @@
         "Evidence": "Not Applicable"
       },
       "Q8": {
-        "correct_short_answer": "Dynamic query hint selection using reinforcement learning (via Thompson sampling) to steer the traditional optimizer to avoid the worst case",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by allowing the optimizer to learn from manual optimization work done by human DBAs and by providing features like per-query activation and triggered exploration to handle performance-critical queries.",
@@ -714,7 +714,7 @@
         "Evidence": "Our experimental results on several single-table and multi-table benchmarks indicate BayesCard’s superiority over existing state-of-the-art CardEst methods."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing BayesCard, a framework that leverages Bayesian network models within probabilistic programming languages to build an ensemble of models, combined with progressive sampling and compiled variable elimination inference, ensuring stable and efficient cardinality estimation under diverse data conditions.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by using techniques such as graph reduction to handle data complexity and maintain stable performance across various data settings.",
@@ -933,7 +933,7 @@
         "Evidence": "In Section 5.2 we empirically evaluate the effect of sample size on accuracy and execution time."
       },
       "Q8": {
-        "correct_short_answer": "CORDS improves query optimization robustness by automatically detecting correlations and soft functional dependencies between database columns that would otherwise lead to catastrophic selectivity estimation errors. By recommending column-group statistics for strongly correlated columns, it prevents optimizers from making naive independence assumptions that can cause query plans to be orders of magnitude slower than necessary. Experimental results show CORDS dramatically reduces worst-case execution times by an order of magnitude, while requiring minimal system overhead through efficient sampling techniques and strategic pruning of candidate column pairs.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by enhancing the accuracy of selectivity estimates and query execution times through the use of cords, which helps in identifying correlations and reducing estimation errors.",
@@ -1147,7 +1147,7 @@
         "Evidence": "Not Applicable"
       },
       "Q8": {
-        "correct_short_answer": "The study introduces HybridQO, which uses a Monte Carlo Tree Search–guided, learning-based join-order estimator to generate leading hints, supplements these hints via a traditional cost-based optimizer to form candidate plans, and applies an uncertainty-aware performance predictor to filter out high-uncertainty plans, thereby adapting to out-of-distribution queries.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method aims to improve robustness by integrating learning-based and cost-based optimization strategies. This hybrid approach is designed to enhance the performance and adaptability of query plans across different workloads, thereby increasing the robustness of the system.",
@@ -1565,7 +1565,7 @@
         "Evidence": "Experimental results show that Fauce scales well to this benchmark, it has at least 1.28× higher accuracy than baselines."
       },
       "Q8": {
-        "correct_short_answer": "Fauce improves robustness in cardinality estimation through four key innovations: a sophisticated query featurization method that captures real correlations between database columns and tables, uncertainty quantification that provides confidence levels for estimates, a deep ensemble learning approach that combines multiple neural networks, and an uncertainty management system that identifies when estimates are unreliable. Crucially, Fauce includes a fall-back mechanism that triggers when uncertainties are high, storing problematic queries in a buffer for incremental learning and using sampling techniques to generate additional training data. This adaptive approach makes Fauce significantly more accurate (1.3×-6.7× lower error rates) and faster (10× faster inference) than existing methods, especially for complex queries.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by efficiently handling dynamic environments and updating statistical information, which enhances its adaptability and accuracy.",
@@ -1805,7 +1805,7 @@
         "Evidence": "The text mentions 'all the performance results shown' and 'Table 4, which presents a comparison between SEER and CostGreedy (CG)', indicating the use of experimental results to assess robustness."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness through the SEER (Selectivity-Estimate-Error-Resistance) algorithm, which replaces error-sensitive plan choices with more stable alternatives. SEER works by reducing complex plan diagrams (visual representations of optimizer plan choices across the selectivity space) to simpler anorexic versions containing fewer plans. ",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by evaluating the performance of replacement plans in terms of their resistance to selectivity errors, as indicated by the Selectivity Error Resistance Factor (SERF).",
@@ -2021,7 +2021,7 @@
         "Evidence": "Figure 14 shows that in both scenarios, Kepler’s fallback mechanism allows it to accurately detect OOD inputs and drastically reduce 𝑃reg while still preserving some speedup."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by incorporating robust neural network prediction techniques, such as Spectral-normalized Neural Gaussian Processes (SNGPs), to accurately quantify prediction confidence and fall back to the database’s query optimizer when uncertain. This approach helps decrease tail latency and reduce query regressions, ensuring that the system can handle dynamic workloads and out-of-distribution (OOD) inputs effectively. The use of Row Count Evolution (RCE) to generate a diverse set of candidate plans by perturbing sub-plan cardinality estimates.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by using fallback mechanisms to handle out-of-distribution inputs effectively, ensuring accurate detection and maintaining performance.",
@@ -2238,7 +2238,7 @@
         "Evidence": "Figure 3 shows the q-error of MSCN compared to our competitors. While PostgreSQL’s errors are more skewed towards the positive spectrum, RS tends to underestimate joins, which stems from the fact that it assumes independence. IBJS performs extremely well in the median and 75th percentile but (like RS) suffers from empty base table samples. MSCN is competitive with IBJS in the median while being significantly more robust."
       },
       "Q8": {
-        "correct_short_answer": "By using deep learning to predict query cardinalities in situations where sampling-based approaches fail, particularly in '0-tuple situations', and by learning join-crossing correlations from data.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method aims to improve robustness by effectively handling 0-tuple situations and capturing join-crossing correlations, which are challenging for existing cardinality estimation techniques.",
@@ -2388,208 +2388,6 @@
       }
     }
   },
-  "LEON A New Framework for ML-Aided Query Optimization.pdf": {
-    "metadata": {
-      "paper_id": "57",
-      "pdf_filename": "LEON A New Framework for ML-Aided Query Optimization.pdf",
-      "title": "LEON: ANewFrameworkforML-AidedQueryOptimization",
-      "authors": "Xu Chen, Haitian Chen, Zibo Liang, Shuncheng Liu, Jinghong Wang, Kai Zeng, Han Su, Kai Zheng",
-      "year": "2023",
-      "null": [
-        " Zibo Liang",
-        " Shuncheng Liu",
-        " Jinghong Wang",
-        " Kai Zeng",
-        " Han Su",
-        " Kai Zheng",
-        "2023"
-      ]
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper introduce a new definition of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The new context provided does not include any information about a new definition of robustness or a detailed discussion on robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q2": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper define robustness or risk, either explicitly or implicitly? If yes, what is the definition? (Short answers: concise definition(s), Not provided, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The new context does not provide any explicit or implicit definitions of robustness or risk.",
-        "Evidence": "Not Applicable"
-      },
-      "Q3": {
-        "correct_short_answer": "",
-        "QuestionText": "If a new definition of robustness is given, what aspect of the system does it apply to (e.g., join ordering, DBMS, ML models)? If unclear, say 'Unsure'.",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide a new definition of robustness or specify the aspect of the system it applies to.",
-        "Evidence": "Not Applicable"
-      },
-      "Q4": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper address robustness in query optimization or processing? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper discusses the robustness of the proposed models, particularly in handling uncertainty and optimizing query processing through a mixed cost model and inter-equivalent set ranking.",
-        "Evidence": "The paper proposes a mixed cost model with a parameterized calibration function to handle uncertainty and optimize query processing, indicating robustness in these areas."
-      },
-      "Q5": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study contribute to theoretical advancements in the field? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study contributes to theoretical advancements by introducing LEON, a framework that integrates machine learning models with traditional query optimization techniques. This includes the development of intra-equivalent and inter-equivalent set models, which enhance optimization decisions and search space pruning, respectively. These innovations represent a theoretical advancement in query optimization.",
-        "Evidence": "LEON trains an intra-equivalent set ML model to influence optimization decisions within an equivalent set and an inter-equivalent set model for ranking, which prunes redundant search space. These models are part of a new framework that integrates ML models into traditional optimizers."
-      },
-      "Q6": {
-        "correct_short_answer": "",
-        "QuestionText": "Is there a significant experimental evaluation included in the paper? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper includes extensive experiments to demonstrate the effectiveness of the LEON framework in improving execution latency, training efficiency, and stability.",
-        "Evidence": "We conducted extensive experiments on four public benchmarks, providing evidence that LEON exhibits superior performance in terms of execution latency, training efficiency, and stability."
-      },
-      "Q7": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of evaluation method is used to assess robustness (e.g., experimental results, theoretical analysis)? If not provided, say 'Not provided'.",
-        "ShortAnswer": "Experimental results",
-        "Reasoning": "The document provides evidence of experimental results being used to assess the robustness of the LEON framework.",
-        "Evidence": "Extensive experiments offer evidence that the proposed framework can outperform the state-of-the-art methods in terms of end-to-end latency performance, training efficiency, and stability."
-      },
-      "Q8": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The proposed method aims to improve robustness by introducing a parameterized calibration function and uncertainty measurement through dropout layers, which enhances the model's ability to handle variability and improve performance.",
-        "Evidence": "The intra-equivalent set ML model training is supervised by the immediate latency performance of plan pairs from the same set. For the uncertainty measurement, we add dropout layers into the MLP of the model to introduce randomness. Thus, the model can measure uncertainty based on multiple predictions."
-      },
-      "Q9": {
-        "correct_short_answer": "",
-        "QuestionText": "Which metrics or indicators are used in the paper to evaluate robustness? List them if mentioned, otherwise say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly mention any metrics or indicators used to evaluate robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q10": {
-        "correct_short_answer": "",
-        "QuestionText": "Which benchmarks are used in the experiments? (Short answers: JOB, TPC-DS, TPC-H, Stack, CEB, DSB, [a list of the other benchmarks used], Not provided, Unsure)",
-        "ShortAnswer": "JOB, JOB-EXT, Stack, TPC-H",
-        "Reasoning": "The document explicitly lists the benchmarks used in the experiments as JOB, JOB-EXT, Stack, and TPC-H.",
-        "Evidence": "Datasets. The four widely-used datasets listed below serve as benchmarks for the evaluation of LEON: •JoinOrderBenchmark(JOB)... •ExtendedJOB(JOB-EXT)... •STACK... •TPC-H..."
-      },
-      "Q11": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the benchmarks used in the study real, synthetic, or both? (Short answers: Real, Synthetic, Both, Not provided, Unsure)",
-        "ShortAnswer": "Real",
-        "Reasoning": "The document explicitly mentions that the Join Order Benchmark (JOB) is a real-world dataset.",
-        "Evidence": "Datasets. The four widely-used datasets listed below serve as benchmarks for the evaluation of LEON: •JoinOrderBenchmark(JOB):JOBisareal-worlddatasetthat"
-      },
-      "Q12": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper control any characteristics during training data, query, or plan generation (e.g., distribution, selectivity, join patterns)? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context does not provide specific information about controlling characteristics such as distribution, selectivity, or join patterns during training data, query, or plan generation.",
-        "Evidence": "Not Applicable"
-      },
-      "Q13": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the experiments explicitly designed to evaluate robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide explicit information on whether the experiments were designed to evaluate robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q14": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method use machine learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document outlines the use of machine learning models for query optimization, specifically highlighting the development of ML models for intra-equivalent set optimization and inter-equivalent set ranking.",
-        "Evidence": "The text mentions, 'LEON builds two ML models tasked to learn such patterns,' and 'LEON trains an intra-equivalent set ML model 𝑀𝐼 to influence the optimization decisions within an equivalent set.'"
-      },
-      "Q15": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of machine learning is used in the method? (Short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement, Other, Not provided, Unsure)",
-        "ShortAnswer": "Other",
-        "Reasoning": "The method uses Bayesian Neural Networks (BNNs), which provide a framework to measure the uncertainty of a predictive model. This approach is distinct from traditional supervised, unsupervised, or reinforcement learning.",
-        "Evidence": "Bayesian Neural Network (BNN) [14] provides a framework to measure the uncertainty of a predictive model. Different from the point estimation, given the prior distribution of model parameters P(θ), BNN learns the posterior distribution p(θ' | E) from experience E."
-      },
-      "Q16": {
-        "correct_short_answer": "",
-        "QuestionText": "What is the machine learning category of the proposed method? (Short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Unsure)",
-        "ShortAnswer": "Learning-to-Rank",
-        "Reasoning": "The method is described as a contextual plan ranking problem, which aligns with Learning-to-Rank techniques.",
-        "Evidence": "Instead, what we really need is the correct order of candidate plans. Thus, we formalize query optimization as a contextual plan ranking problem."
-      },
-      "Q17": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the method use deep learning models? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document mentions the use of multilayer perceptrons (MLP), which are a type of deep learning model.",
-        "Evidence": "For the uncertainty measurement, we add dropout layers into the MLP of MI to introduce randomness (red cross in Fig 2)."
-      },
-      "Q18": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the approach use transfer learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The provided context does not explicitly mention the use of transfer learning in the approach.",
-        "Evidence": "Not Applicable"
-      },
-      "Q19": {
-        "correct_short_answer": "",
-        "QuestionText": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
-        "ShortAnswer": "Experience collection and model training",
-        "Reasoning": "The study describes a method for generating training data through experience collection and model training, where execution feedback is collected to improve the optimizer's performance.",
-        "Evidence": "The plan exploration inherently connects closely to the plan enumeration in DP since the mixed cost model is tasked to find the optimal plans among enumerated plans i.e., from the equivalent set S. We pick not only the optimal one but also sub-optimal plans from S to the experience E. Later, the collected training data will be executed to collect corresponding execution feedback."
-      },
-      "Q20": {
-        "correct_short_answer": "",
-        "QuestionText": "How are input samples represented or encoded in the study (e.g., feature vectors, trees, graphs)? If the encoding process is not discussed, say 'Not provided'.",
-        "ShortAnswer": "Feature vectors",
-        "Reasoning": "The new context provides specific information about the representation of input samples as logical and physical feature vectors.",
-        "Evidence": "The inputs to the neural networks are encoded as logical and physical feature vectors: The logical feature vector encodes information in 𝑄 and 𝑞. The physical feature vector encodes information in 𝜔 and 𝑝."
-      },
-      "Q21": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study handle predictive uncertainty in any way? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Repeat",
-        "Reasoning": "The new context does not provide any additional information regarding the handling of predictive uncertainty.",
-        "Evidence": "Not Applicable"
-      },
-      "Q22": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study consider generalization to out-of-distribution data as part of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not explicitly address generalization to out-of-distribution data in the context of robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q23": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study evaluate generalization to out-of-distribution scenarios? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study evaluates generalization to out-of-distribution scenarios by using the JOB-EXT dataset, which is specifically designed to test the generalization capability of different methods on difficult, unseen queries.",
-        "Evidence": "We used the JOB dataset for training and JOB-EXT for testing. Finally, we conducted tests on large-scale workloads for the STACK benchmark."
-      },
-      "Q24": {
-        "correct_short_answer": "",
-        "QuestionText": "Which model architecture is used in the proposed method (excluding baselines)? (Short answers: MLP, RNN, MSCN, TCNN, Tree-LSTM, BDT, GNN, Transformer, Other, Not provided, Unsure)",
-        "ShortAnswer": "MLP",
-        "Reasoning": "The document describes the use of a multilayer perceptron (MLP) as part of the model architecture in the proposed method.",
-        "Evidence": "After the feature extractor, there are two output heads. Each head is a multilayer perceptron (MLP), which takes the feature vector as the input to predict the desired outputs."
-      },
-      "Q25": {
-        "correct_short_answer": "",
-        "QuestionText": "Was improving robustness the main motivation behind the model or encoding design? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The new context does not provide explicit information indicating that improving robustness was the main motivation behind the model or encoding design.",
-        "Evidence": "Not Applicable"
-      },
-      "Q26": {
-        "correct_short_answer": "",
-        "QuestionText": "Aside from the main approach, does the paper mention any additional techniques to enhance robustness? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper discusses additional techniques such as a ranking and uncertainty-based exploration strategy and ML model-guided pruning to enhance robustness.",
-        "Evidence": "To help the optimizer to escape the local minima and avoid failure, a ranking and uncertainty-based exploration strategy is proposed, which discovers the valuable plans to aid the optimizer. Furthermore, an ML model-guided pruning is proposed to increase the planning efficiency without hurting too much performance."
-      }
-    }
-  },
   "LOGER A Learned Optimizer towards Generating Efficient and Robust Query Execution Plans.pdf": {
     "metadata": {
       "paper_id": "59",
@@ -2658,7 +2456,7 @@
         "Evidence": "Experiments show that on JOB testing workload, our method can outperform traditional optimizer after about 2 hours of training, and achieve a 2.07x speedup in the end. We further tested our method on a commercial DBMS and obtained similar results."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing several key strategies: 1. Utilizing Graph Transformer (GT) to capture relationships between tables and predicates, enhancing query representation. 2. Implementing Restricted Operator Search Space (ROSS) to leverage DBMS expertise to forbid particularly poor operators rather than selecting operators freely, reducing search risk. 3. Employing ε-beam search for adaptive exploration, which combines beam search with ε-greedy exploration to balance guided and random exploration across multiple paths. 4. Introducing reward weighting and log transformation in the loss function to stabilize reward values and reduce the impact of poor operators on performance.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method, LOGER, aims to improve robustness by employing techniques like reward weighting and log transformation to mitigate the effects of previous poor plans and stabilize performance.",
@@ -2888,7 +2686,7 @@
         "Evidence": "Next, we analyze Neo’s performance at the query level. The absolute performance improvement (or regression) in seconds for each query in the JOB workload between the Neo and PostgreSQL plans (executed on PostgreSQL) are shown in Figure 14 (purple)."
       },
       "Q8": {
-        "correct_short_answer": "Neo leverages reinforcement learning to iteratively retrain a deep value network that is initially bootstrapped from an expert optimizer and continuously updated using actual query latencies. This process adapts plan selection and reduces sensitivity to estimation errors. In addition, Neo employs word2vec-based row vectors to automatically capture query predicate semantics from the underlying database, allowing the model to effectively handle unseen predicates based on their semantic similarity.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The document suggests that Neo is designed to enhance robustness by outperforming existing optimizers and adapting to various estimation errors.",
@@ -3039,402 +2837,6 @@
       }
     }
   },
-  "Plan Bouquets A Fragrant Approach to Robust Query Processing.pdf": {
-    "metadata": {
-      "paper_id": "75",
-      "pdf_filename": "Plan Bouquets A Fragrant Approach to Robust Query Processing.pdf",
-      "title": "Plan bouquets: A fragrant approach to robust query processing",
-      "authors": "Dutt, A.; Haritsa, J.R.",
-      "year": "2016",
-      "null": [
-        " Haritsa",
-        " J.R.",
-        "2016"
-      ]
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper introduce a new definition of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper introduces a robustness model based on performance sub-optimality, which is a specific way to characterize robustness.",
-        "Evidence": "Robustness can be defined in many different ways and there is no universally accepted metric [Graefe et al. 2012]—here, we use the notion of performance sub-optimality to characterize robustness."
-      },
-      "Q2": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper define robustness or risk, either explicitly or implicitly? If yes, what is the definition? (Short answers: concise definition(s), Not provided, Unsure)",
-        "ShortAnswer": "concise definition(s)",
-        "Reasoning": "The paper provides a definition of robustness by using the concept of performance sub-optimality to characterize it.",
-        "Evidence": "Robustness can be defined in many different ways and there is no universally accepted metric [Graefe et al. 2012]—here, we use the notion of performance sub-optimality to characterize robustness."
-      },
-      "Q3": {
-        "correct_short_answer": "",
-        "QuestionText": "If a new definition of robustness is given, what aspect of the system does it apply to (e.g., join ordering, DBMS, ML models)? If unclear, say 'Unsure'.",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide a new definition of robustness that applies to a specific aspect of the system such as join ordering, DBMS, or ML models.",
-        "Evidence": "Not Applicable"
-      },
-      "Q4": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper address robustness in query optimization or processing? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper focuses on enhancing the robustness of query processing through the plan bouquet approach, which includes performance improvements and strategies to handle sub-optimality.",
-        "Evidence": "Our performance results indicate that the bouquet approach typically provides orders of magnitude improvements, as compared to the optimizer’s native choices. The potency of the approach is also indicated by its providing an MSO guarantee of less than 20 over our entire query workload, while the average sub-optimality was typically within a factor of 4 wrt to the optimal."
-      },
-      "Q5": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study contribute to theoretical advancements in the field? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study introduces a new approach to query processing with the plan bouquet algorithm, providing theoretical guarantees on worst-case performance sub-optimality, which is a novel contribution.",
-        "Evidence": "To the best of our knowledge, the above MSO bounds are the first such guarantees in the literature."
-      },
-      "Q6": {
-        "correct_short_answer": "",
-        "QuestionText": "Is there a significant experimental evaluation included in the paper? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper includes comprehensive experimental evaluations, showcasing performance metrics and comparisons across different query processing approaches.",
-        "Evidence": "All the results presented thus far were obtained on our instrumented PostgreSQL engine. We now present sample evaluations on a popular commercial engine, hereafter referred to as COM. Focusing on the performance aspects, shown in Figure 23, we find that here also large values of MSO and ASO are obtained for NAT and SEER."
-      },
-      "Q7": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of evaluation method is used to assess robustness (e.g., experimental results, theoretical analysis)? If not provided, say 'Not provided'.",
-        "ShortAnswer": "Experimental results",
-        "Reasoning": "The document discusses empirical evaluations of the plan bouquet approach on PostgreSQL and a commercial DBMS, indicating that experimental results are used to assess robustness.",
-        "Evidence": "The plan bouquet approach has been empirically evaluated on both PostgreSQL and a commercial DBMS, over the TPC-H and TPC-DS benchmark environments. Our experimental results indicate that it delivers substantial improvements in the worst-case behavior, without impairing the average-case performance, as compared to the native optimizers of these systems."
-      },
-      "Q8": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The method aims to improve robustness by offering performance guarantees and reducing sub-optimality in query processing.",
-        "Evidence": "Our performance results indicate that the bouquet approach typically provides orders of magnitude improvements, as compared to the optimizer’s native choices."
-      },
-      "Q9": {
-        "correct_short_answer": "",
-        "QuestionText": "Which metrics or indicators are used in the paper to evaluate robustness? List them if mentioned, otherwise say 'Not provided'.",
-        "ShortAnswer": "SubOpt, MSO, ASO, MH, MSOg, MESOg",
-        "Reasoning": "The paper explicitly mentions several metrics used to evaluate robustness, including SubOpt, MSO, ASO, MH, MSOg, and MESOg.",
-        "Evidence": "Sub-Optimality-Based Robustness Metrics... SubOpt(q ,q )... MSO= max (SubOptworst (q a ))... ASO=... MH= max a −1... MSOg Compile-time guarantee on worst-case sub-optimality... MESOg Compile-time guarantee on maximum expected sub-optimality."
-      },
-      "Q10": {
-        "correct_short_answer": "",
-        "QuestionText": "Which benchmarks are used in the experiments? (Short answers: JOB, TPC-DS, TPC-H, Stack, CEB, DSB, [a list of the other benchmarks used], Not provided, Unsure)",
-        "ShortAnswer": "TPC-DS, TPC-H",
-        "Reasoning": "The document explicitly mentions the use of TPC-H and TPC-DS benchmarks in the experiments.",
-        "Evidence": "The plan bouquet approach has been empirically evaluated on both PostgreSQL and a commercial DBMS, over the TPC-H and TPC-DS benchmark environments."
-      },
-      "Q11": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the benchmarks used in the study real, synthetic, or both? (Short answers: Real, Synthetic, Both, Not provided, Unsure)",
-        "ShortAnswer": "Both",
-        "Reasoning": "The study mentions the use of TPC-H and TPC-DS benchmark environments, which are standard benchmarks used in database performance evaluation.",
-        "Evidence": "The plan bouquet approach has been empirically evaluated on both PostgreSQL and a commercial DBMS, over the TPC-H and TPC-DS benchmark environments."
-      },
-      "Q12": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper control any characteristics during training data, query, or plan generation (e.g., distribution, selectivity, join patterns)? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any specific control over characteristics such as distribution, selectivity, or join patterns during training data, query, or plan generation.",
-        "Evidence": "Not Applicable"
-      },
-      "Q13": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the experiments explicitly designed to evaluate robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The experiments are explicitly designed to evaluate robustness as they demonstrate substantial improvements in robustness metrics and performance across various query locations without negative impacts.",
-        "Evidence": "The robustness enhancement is at least an order of magnitude for more than 90% of the query locations, without incurring any harm at the remaining locations (MH<0). These results imply that our earlier observations are not artifacts of a specific engine."
-      },
-      "Q14": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method use machine learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide explicit information on whether the proposed method uses machine learning.",
-        "Evidence": "Not Applicable"
-      },
-      "Q15": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of machine learning is used in the method? (Short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any type of machine learning being used in the method.",
-        "Evidence": "Not Applicable"
-      },
-      "Q16": {
-        "correct_short_answer": "",
-        "QuestionText": "What is the machine learning category of the proposed method? (Short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly categorize the proposed method into any standard machine learning category.",
-        "Evidence": "Not Applicable"
-      },
-      "Q17": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the method use deep learning models? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "No",
-        "Reasoning": "The document focuses on query processing techniques like the plan bouquet method and does not reference the use of deep learning models.",
-        "Evidence": "Not Applicable"
-      },
-      "Q18": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the approach use transfer learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not mention transfer learning or provide any information that suggests its use in the approach.",
-        "Evidence": "Not Applicable"
-      },
-      "Q19": {
-        "correct_short_answer": "",
-        "QuestionText": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any method for generating training data.",
-        "Evidence": "Not Applicable"
-      },
-      "Q20": {
-        "correct_short_answer": "",
-        "QuestionText": "How are input samples represented or encoded in the study (e.g., feature vectors, trees, graphs)? If the encoding process is not discussed, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly discuss how input samples are represented or encoded.",
-        "Evidence": "Not Applicable"
-      },
-      "Q21": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study handle predictive uncertainty in any way? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study addresses predictive uncertainty by avoiding compile-time estimation for error-prone selectivities and instead discovering them at runtime through a series of cost-limited plan executions.",
-        "Evidence": "In this article, we investigate a conceptually new approach, wherein the compile-time estimation process is completely eschewed for error-prone selectivities. Instead, these selectivities are systematically discovered at runtime through a calibrated sequence of cost-limited plan executions."
-      },
-      "Q22": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study consider generalization to out-of-distribution data as part of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not explicitly mention generalization to out-of-distribution data as part of robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q23": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study evaluate generalization to out-of-distribution scenarios? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide explicit information on whether the study evaluates generalization to out-of-distribution scenarios.",
-        "Evidence": "Not Applicable"
-      },
-      "Q24": {
-        "correct_short_answer": "",
-        "QuestionText": "Which model architecture is used in the proposed method (excluding baselines)? (Short answers: MLP, RNN, MSCN, TCNN, Tree-LSTM, BDT, GNN, Transformer, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly mention any specific model architecture used in the proposed method.",
-        "Evidence": "Not Applicable"
-      },
-      "Q25": {
-        "correct_short_answer": "",
-        "QuestionText": "Was improving robustness the main motivation behind the model or encoding design? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document highlights that the plan bouquet approach is intended to improve robustness in query processing by offering performance guarantees.",
-        "Evidence": "Overall, the plan bouquet approach provides novel performance guarantees that open up new possibilities for robust query processing."
-      },
-      "Q26": {
-        "correct_short_answer": "",
-        "QuestionText": "Aside from the main approach, does the paper mention any additional techniques to enhance robustness? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context provided does not mention any additional techniques to enhance robustness aside from the main approach.",
-        "Evidence": "Not Applicable"
-      }
-    }
-  },
-  "Plan Bouquets Query Processing without Selectivity Estimation.pdf": {
-    "metadata": {
-      "paper_id": "76",
-      "pdf_filename": "Plan Bouquets Query Processing without Selectivity Estimation.pdf",
-      "title": "Plan bouquets: Query processing without selectivity estimation",
-      "authors": "Dutt, A.; Haritsa, J.R.",
-      "year": "2014",
-      "null": [
-        " Haritsa",
-        " J.R.",
-        "2014"
-      ]
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper introduce a new definition of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper discusses a framework for robustness in query processing, specifically addressing performance sub-optimality due to selectivity estimation errors, which implies a new approach to defining robustness.",
-        "Evidence": "Robustness can be defined in many different ways and there is no universally accepted metric [13] – here, we use the notion of performance sub-optimality to characterize robustness."
-      },
-      "Q2": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper define robustness or risk, either explicitly or implicitly? If yes, what is the definition? (Short answers: concise definition(s), Not provided, Unsure)",
-        "ShortAnswer": "Robustness is defined using the notion of performance sub-optimality to characterize robustness.",
-        "Reasoning": "The paper provides a definition of robustness in terms of performance sub-optimality, which is used to characterize robustness in the context of query processing.",
-        "Evidence": "Robustness can be defined in many different ways and there is no universally accepted metric – here, we use the notion of performance sub-optimality to characterize robustness."
-      },
-      "Q3": {
-        "correct_short_answer": "",
-        "QuestionText": "If a new definition of robustness is given, what aspect of the system does it apply to (e.g., join ordering, DBMS, ML models)? If unclear, say 'Unsure'.",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide a new definition of robustness that specifies the aspect of the system it applies to.",
-        "Evidence": "Not Applicable"
-      },
-      "Q4": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper address robustness in query optimization or processing? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper discusses robustness in query processing by presenting a method that ensures bounded worst-case performance, which is a key aspect of robustness.",
-        "Evidence": "The basic bouquet algorithm for the multi-dimensional case is shown in Figure 7, using the notation n to represent the number of plans on contour k. The worst-case performance of R* is given by... Therefore, the worst-case total execution cost for the multi-D bouquet algorithm is given by... This indicates a focus on robustness in query processing."
-      },
-      "Q5": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study contribute to theoretical advancements in the field? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study presents the bouquet approach, which offers a novel method for query processing by ensuring repeatability and robustness without relying on traditional selectivity estimation, thus contributing to theoretical advancements in query optimization.",
-        "Evidence": "Finally, we emphasize that our goal of minimizing the worst-case performance in the presence of unbounded selectivity errors, does not coincide with any of the earlier works in this area."
-      },
-      "Q6": {
-        "correct_short_answer": "",
-        "QuestionText": "Is there a significant experimental evaluation included in the paper? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper provides a comprehensive experimental evaluation to demonstrate the effectiveness of the bouquet approach in query processing.",
-        "Evidence": "In order to empirically validate its utility, we have evaluated the bouquet approach on PostgreSQL and a popular commercial DBMS. Our experiments utilize a rich set of complex decision support queries sourced from the TPC-H and TPC-DS benchmarks."
-      },
-      "Q7": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of evaluation method is used to assess robustness (e.g., experimental results, theoretical analysis)? If not provided, say 'Not provided'.",
-        "ShortAnswer": "Experimental results, Theoretical analysis",
-        "Reasoning": "The document provides evidence of both experimental results and theoretical analysis being used to assess the robustness of the plan bouquet approach.",
-        "Evidence": "The plan bouquet approach has been empirically evaluated on both PostgreSQL and a commercial DBMS, over the TPC-H and TPC-DS benchmark environments. Theoretical bounds on the robustness provided by the bouquet technique are presented in Section 3."
-      },
-      "Q8": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The proposed method aims to improve robustness by altering the deterministic guarantee and providing a beneficial tradeoff in performance bounds, as evidenced by the significant reduction in bounds under the anorexic reduction configuration.",
-        "Evidence": "Overall, the deterministic guarantee is altered from 4ρ to 4(1+λ)ρ. Empirical evidence that this tradeoff is very beneficial is shown in Table 1, which compares for a variety of multi-dimensional error spaces, the bounds using the original POSP configuration and under an anorexic reduction (λ = 20%)."
-      },
-      "Q9": {
-        "correct_short_answer": "",
-        "QuestionText": "Which metrics or indicators are used in the paper to evaluate robustness? List them if mentioned, otherwise say 'Not provided'.",
-        "ShortAnswer": "MSO, ASO, MaxHarm",
-        "Reasoning": "The paper evaluates robustness using metrics such as Maximum Sub-Optimality (MSO), Average Sub-Optimality (ASO), and MaxHarm.",
-        "Evidence": "Focusing on the performance aspects, shown in Figure 19, we find that here also large values of MSO and ASO are obtained for NAT and SEER. Further, BOU continues to provide substantial improvements on these metrics with a small sized bouquet. Again, the robustness enhancement is at least an order of magnitude for more than 90% of the query locations, without incurring any harm at the remaining locations (MH < 0)."
-      },
-      "Q10": {
-        "correct_short_answer": "",
-        "QuestionText": "Which benchmarks are used in the experiments? (Short answers: JOB, TPC-DS, TPC-H, Stack, CEB, DSB, [a list of the other benchmarks used], Not provided, Unsure)",
-        "ShortAnswer": "TPC-H, TPC-DS",
-        "Reasoning": "The document explicitly mentions the use of TPC-H and TPC-DS benchmarks in the experiments.",
-        "Evidence": "The query workload includes selectivity spaces with as many as five error-prone dimensions, thereby capturing environments that are extremely challenging from a robustness perspective. Our performance results indicate that the bouquet approach typically provides orders of magnitude improvements, as compared to the optimizer’s native choices. As a case in point, for Query 19 of the TPC-DS benchmark with 5 error-prone join selectivities, the worst-case sub-optimality plummeted from about 106 to just 10!"
-      },
-      "Q11": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the benchmarks used in the study real, synthetic, or both? (Short answers: Real, Synthetic, Both, Not provided, Unsure)",
-        "ShortAnswer": "Real",
-        "Reasoning": "The study uses the TPC-DS benchmark, which is a standard real-world benchmark for evaluating database performance.",
-        "Evidence": "As a case in point, for Query 19 of the TPC-DS benchmark with 5 error-prone join selectivities, the worst-case sub-optimality plummeted from about 106 to just 10!"
-      },
-      "Q12": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper control any characteristics during training data, query, or plan generation (e.g., distribution, selectivity, join patterns)? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context does not provide specific information about controlling characteristics during training data, query, or plan generation.",
-        "Evidence": "Not Applicable"
-      },
-      "Q13": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the experiments explicitly designed to evaluate robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document discusses the robustness of the bouquet approach, including empirical evidence and performance comparisons using specific metrics.",
-        "Evidence": "EmpiricalevidencethatthistradeoffisverybeneficialisshowninTable1,whichcomparesforavarietyofmulti-dimensionalerrorspaces,thebounds(usingEquation8)undertheoriginalPOSPconfiguration and under an anorexic reduction (λ = 20%)."
-      },
-      "Q14": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method use machine learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "No",
-        "Reasoning": "The document does not mention the use of machine learning in the proposed method. It focuses on a new approach to query processing that avoids compile-time selectivity estimation.",
-        "Evidence": "In this paper, we investigate a conceptually new approach, wherein the compile-time estimation process is completely eschewed for error-prone selectivities. Instead, these selectivities are systematically discovered at run-time through a calibrated sequence of cost-limited plan executions."
-      },
-      "Q15": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of machine learning is used in the method? (Short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any type of machine learning being used in the method described.",
-        "Evidence": "Not Applicable"
-      },
-      "Q16": {
-        "correct_short_answer": "",
-        "QuestionText": "What is the machine learning category of the proposed method? (Short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Unsure)",
-        "ShortAnswer": "Other",
-        "Reasoning": "The proposed method, Plan Bouquets, focuses on query processing and optimization in databases, which does not align with standard machine learning categories such as Regression, Classification, etc.",
-        "Evidence": "The plan bouquet approach has been empirically evaluated on both PostgreSQL and a commercial DBMS, over the TPC-H and TPC-DS benchmark environments. Our experimental results indicate query response times were explicitly measured for NAT and BOU."
-      },
-      "Q17": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the method use deep learning models? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "No",
-        "Reasoning": "The document describes the Plan Bouquets approach, which is centered around query processing techniques such as cost-based optimization and selectivity estimation, without any reference to deep learning models.",
-        "Evidence": "The document discusses techniques like plan-switching and robustness in query processing, with no indication of deep learning models being used."
-      },
-      "Q18": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the approach use transfer learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not mention transfer learning or provide any information related to its use in the approach.",
-        "Evidence": "Not Applicable"
-      },
-      "Q19": {
-        "correct_short_answer": "",
-        "QuestionText": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any method for generating training data.",
-        "Evidence": "Not Applicable"
-      },
-      "Q20": {
-        "correct_short_answer": "",
-        "QuestionText": "How are input samples represented or encoded in the study (e.g., feature vectors, trees, graphs)? If the encoding process is not discussed, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not provide specific information on how input samples are represented or encoded.",
-        "Evidence": "Not Applicable"
-      },
-      "Q21": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study handle predictive uncertainty in any way? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study addresses predictive uncertainty by using a plan bouquet technique that does not rely on compile-time selectivity estimates. Instead, it discovers selectivities at runtime through exploratory executions, which helps manage the uncertainty.",
-        "Evidence": "The above MSO and ASO definitions are appropriate for the way that modern optimizers behave, wherein selectivity estimates are made at compile-time, and a single plan is executed at run-time. However, in the plan bouquet technique, neither of these characteristics is true– error-prone selectivities are not estimated at compile-time, and multiple plans may be invoked at run-time."
-      },
-      "Q22": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study consider generalization to out-of-distribution data as part of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not explicitly address generalization to out-of-distribution data as part of robustness. It primarily discusses robustness in terms of performance sub-optimality and selectivity estimation errors.",
-        "Evidence": "Robustness can be defined in many different ways and there is no universally accepted metric – here, we use the notion of performance sub-optimality to characterize robustness."
-      },
-      "Q23": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study evaluate generalization to out-of-distribution scenarios? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The new context does not provide any additional information about the evaluation of generalization to out-of-distribution scenarios.",
-        "Evidence": "Not Applicable"
-      },
-      "Q24": {
-        "correct_short_answer": "",
-        "QuestionText": "Which model architecture is used in the proposed method (excluding baselines)? (Short answers: MLP, RNN, MSCN, TCNN, Tree-LSTM, BDT, GNN, Transformer, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly mention any specific model architecture used in the proposed method.",
-        "Evidence": "Not Applicable"
-      },
-      "Q25": {
-        "correct_short_answer": "",
-        "QuestionText": "Was improving robustness the main motivation behind the model or encoding design? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document emphasizes the bouquet approach's aim to enhance robustness in query processing by addressing sub-optimality caused by selectivity errors.",
-        "Evidence": "Specifically, if we define robustness to be the worst-case sub-optimality in plan performance that can occur due to selectivity errors, the bouquet mechanism delivers substantial robustness improvements, while providing comparable or improved average-case performance."
-      },
-      "Q26": {
-        "correct_short_answer": "",
-        "QuestionText": "Aside from the main approach, does the paper mention any additional techniques to enhance robustness? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context does not introduce any additional techniques to enhance robustness beyond the main approach discussed in the paper.",
-        "Evidence": "Not Applicable"
-      }
-    }
-  },
   "Robust Query Driven Cardinality Estimation under Changing Workloads.pdf": {
     "metadata": {
       "paper_id": "95",
@@ -3511,7 +2913,7 @@
         "Evidence": "To evaluate robustness to query drift, we use three publicly released workloads on the Internet Movie Database (IMDb) with very different properties: Join Order Benchmark (JOB), Cardinality Estimation Benchmark (CEB), and JOBLight-train. We also introduce a new workload on a public racing database, ErgastF1 to verify our results on a different database."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness through three main techniques: query masking during training, join bitmaps for better feature representation, and techniques to handle data updates with shuffled bitmaps",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method aims to improve robustness by providing a simpler and easier-to-implement approach that can make models optimized using Q-Error more robust than those using Flow-Loss alone. It also suggests that the model can adapt gracefully to workload drift.",
@@ -3665,202 +3067,6 @@
       }
     }
   },
-  "Robust Query Processing.pdf": {
-    "metadata": {
-      "paper_id": "97",
-      "pdf_filename": "Robust Query Processing.pdf",
-      "title": "Robust query processing",
-      "authors": "Karthik, S.",
-      "year": "2016",
-      "null": [
-        "2016"
-      ]
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper introduce a new definition of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "No",
-        "Reasoning": "The paper focuses on robust query processing and introduces the SpillBound algorithm, which provides a platform-independent worst-case bound, but it does not introduce a new definition of robustness itself.",
-        "Evidence": "We present SpillBound, the first algorithm for robust query processing that provides a platform-independent worst-case bound."
-      },
-      "Q2": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper define robustness or risk, either explicitly or implicitly? If yes, what is the definition? (Short answers: concise definition(s), Not provided, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper explicitly defines robustness in the context of query processing, focusing on providing a platform-independent worst-case performance bound.",
-        "Evidence": "We present SpillBound, the first algorithm for robust query processing that provides a platform-independent worst-case bound."
-      },
-      "Q3": {
-        "correct_short_answer": "",
-        "QuestionText": "If a new definition of robustness is given, what aspect of the system does it apply to (e.g., join ordering, DBMS, ML models)? If unclear, say 'Unsure'.",
-        "ShortAnswer": "Query optimizer robustness",
-        "Reasoning": "The document continues to focus on the robustness of query processing, particularly in relation to the query optimizer's ability to handle varying conditions and selectivity errors.",
-        "Evidence": "query optimizer robustness: 'the ability of the optimizer to choose a good plan as expected conditions change'"
-      },
-      "Q4": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper address robustness in query optimization or processing? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper discusses robust query processing by introducing the SpillBound algorithm, which provides a platform-independent worst-case bound for query execution, addressing issues related to errors in cardinality estimation and performance variability.",
-        "Evidence": "SpillBound offers a new platform-independent approach to robust query processing."
-      },
-      "Q5": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study contribute to theoretical advancements in the field? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study contributes to theoretical advancements by introducing SpillBound, a new query processing algorithm that provides a platform-independent MSO bound, which is a significant improvement over previous methods like PlanBouquet.",
-        "Evidence": "Specifically, SpillBound delivers an MSO bound that is only a function of D, the number of predicates in the query that are prone to selectivity estimation errors. Moreover, the dependency is in the form of a low-order polynomial, with MSO expressed as (D2+3D)."
-      },
-      "Q6": {
-        "correct_short_answer": "",
-        "QuestionText": "Is there a significant experimental evaluation included in the paper? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The paper provides a comprehensive experimental evaluation that highlights the performance improvements of the SpillBound approach over the PlanBouquet method, particularly in terms of reducing the empirical MSO for various queries.",
-        "Evidence": "For the same query Q91, the empirical MSO decreases drastically from PlanBouquet’s 34 to just 7 for SpillBound. These empirical MSO numbers suggest the looseness of the MSO theoretical bound. More experimental results are captured in [10]."
-      },
-      "Q7": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of evaluation method is used to assess robustness (e.g., experimental results, theoretical analysis)? If not provided, say 'Not provided'.",
-        "ShortAnswer": "Experimental results",
-        "Reasoning": "The document discusses the empirical evaluation of the PlanBouquet and SpillBound algorithms, comparing their performance on standard benchmark queries.",
-        "Evidence": "Our experiments indicate that for the most part, SpillBound provides similar guarantees to PlanBouquet, and occasionally, much tighter bounds. As a case in point, for TPC-DS Query 91 with 4 error-prone predicates the MSO drops from 52.8 with PlanBouquet to 28 with SpillBound. More pertinently, the empirical MSO of SpillBound is significantly better than that of PlanBouquet for all the queries."
-      },
-      "Q8": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The proposed method, SpillBound, is designed to improve the robustness of query processing by offering a platform-independent worst-case bound, addressing the limitations of previous methods like PlanBouquet.",
-        "Evidence": "SpillBound offers a new platform-independent approach to robust query processing."
-      },
-      "Q9": {
-        "correct_short_answer": "",
-        "QuestionText": "Which metrics or indicators are used in the paper to evaluate robustness? List them if mentioned, otherwise say 'Not provided'.",
-        "ShortAnswer": "Maximum Sub-Optimality (MSO), Weighted Sub-Optimality (WSO), Average-case Sub-Optimality (ASO)",
-        "Reasoning": "The paper discusses several metrics for evaluating the robustness of query processing techniques, including Maximum Sub-Optimality (MSO), Weighted Sub-Optimality (WSO), and Average-case Sub-Optimality (ASO). These metrics are used to assess the performance of the PlanBouquet and SpillBound algorithms.",
-        "Evidence": "The empirical MSO of SpillBound is significantly better than that of PlanBouquet for all the queries. Here, empirical MSO refers to the maximum sub-optimality incurred by SpillBound by exhaustively considering each and every location in the ESS to be q. The weighted version of MSO, denoted by WSO, can be defined as follows: WSO = (sum of w(q) * SubOpt(Seq, q)) / (sum of w(q)). With all weights being equal refers to minimizing the average-case equivalent of MSO, referred to as ASO [2]."
-      },
-      "Q10": {
-        "correct_short_answer": "",
-        "QuestionText": "Which benchmarks are used in the experiments? (Short answers: JOB, TPC-DS, TPC-H, Stack, CEB, DSB, [a list of the other benchmarks used], Not provided, Unsure)",
-        "ShortAnswer": "TPC-DS, TPC-H",
-        "Reasoning": "The document explicitly mentions the use of TPC-H and TPC-DS benchmarks in the experiments.",
-        "Evidence": "Our experiments indicate that for the most part, SpillBound provides similar guarantees to PlanBouquet, and occasionally, much tighter bounds. As a case in point, for TPC-DS Query 91 with 4 error-prone predicates the MSO drops from 52.8 with PlanBouquet."
-      },
-      "Q11": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the benchmarks used in the study real, synthetic, or both? (Short answers: Real, Synthetic, Both, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The provided context does not explicitly mention whether the benchmarks used in the study are real, synthetic, or both.",
-        "Evidence": "Not Applicable"
-      },
-      "Q12": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the paper control any characteristics during training data, query, or plan generation (e.g., distribution, selectivity, join patterns)? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly mention controlling characteristics such as distribution, selectivity, or join patterns during training data, query, or plan generation.",
-        "Evidence": "Not Applicable"
-      },
-      "Q13": {
-        "correct_short_answer": "",
-        "QuestionText": "Are the experiments explicitly designed to evaluate robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document discusses the evaluation of PlanBouquet and SpillBound approaches, which are designed for robust query processing, indicating that the experiments are indeed focused on evaluating robustness.",
-        "Evidence": "Our experiments indicate that for the most part, SpillBound provides similar guarantees to PlanBouquet, and occasionally, much tighter bounds."
-      },
-      "Q14": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the proposed method use machine learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide any explicit information about the use of machine learning in the proposed method.",
-        "Evidence": "Not Applicable"
-      },
-      "Q15": {
-        "correct_short_answer": "",
-        "QuestionText": "What type of machine learning is used in the method? (Short answers: Supervised, Unsupervised, Semi-supervised, Reinforcement, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any type of machine learning being used in the method described.",
-        "Evidence": "Not Applicable"
-      },
-      "Q16": {
-        "correct_short_answer": "",
-        "QuestionText": "What is the machine learning category of the proposed method? (Short answers: Regression, Classification, Learning-to-Rank, Autoregression, Clustering, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not explicitly categorize the proposed method into any specific machine learning category such as Regression, Classification, etc.",
-        "Evidence": "Not Applicable"
-      },
-      "Q17": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the method use deep learning models? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "No",
-        "Reasoning": "The document continues to focus on query processing techniques like PlanBouquet and SpillBound, which do not involve deep learning models.",
-        "Evidence": "The document discusses query processing approaches such as PlanBouquet and SpillBound, but there is no mention of deep learning models."
-      },
-      "Q18": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the approach use transfer learning? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not mention transfer learning in the context of the approach discussed.",
-        "Evidence": "Not Applicable"
-      },
-      "Q19": {
-        "correct_short_answer": "",
-        "QuestionText": "How is training data generated in the study? If a generation method is described, summarize it. If not mentioned, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not mention any method for generating training data.",
-        "Evidence": "Not Applicable"
-      },
-      "Q20": {
-        "correct_short_answer": "",
-        "QuestionText": "How are input samples represented or encoded in the study (e.g., feature vectors, trees, graphs)? If the encoding process is not discussed, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The document does not discuss how input samples are represented or encoded.",
-        "Evidence": "Not Applicable"
-      },
-      "Q21": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study handle predictive uncertainty in any way? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The study addresses predictive uncertainty by introducing SpillBound, which provides a worst-case bound for query processing, thereby managing uncertainties in selectivity estimation.",
-        "Evidence": "We present SpillBound, the first algorithm for robust query processing that provides a platform-independent worst-case bound. Specifically, SpillBound delivers a worst-case multiplicative bound of D2 +3D, where D is simply the number of error-prone predicates in the user query."
-      },
-      "Q22": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study consider generalization to out-of-distribution data as part of robustness? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not explicitly mention generalization to out-of-distribution data as part of robustness.",
-        "Evidence": "Not Applicable"
-      },
-      "Q23": {
-        "correct_short_answer": "",
-        "QuestionText": "Does the study evaluate generalization to out-of-distribution scenarios? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Unsure",
-        "Reasoning": "The document does not provide explicit information on whether the study evaluates generalization to out-of-distribution scenarios.",
-        "Evidence": "Not Applicable"
-      },
-      "Q24": {
-        "correct_short_answer": "",
-        "QuestionText": "Which model architecture is used in the proposed method (excluding baselines)? (Short answers: MLP, RNN, MSCN, TCNN, Tree-LSTM, BDT, GNN, Transformer, Other, Not provided, Unsure)",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context does not provide any information about the model architecture used in the proposed method.",
-        "Evidence": "Not Applicable"
-      },
-      "Q25": {
-        "correct_short_answer": "",
-        "QuestionText": "Was improving robustness the main motivation behind the model or encoding design? (Short answers: Yes, No, Unsure)",
-        "ShortAnswer": "Yes",
-        "Reasoning": "The document discusses the development of the SpillBound algorithm, which is designed to enhance the robustness of query processing by providing a platform-independent worst-case bound and addressing selectivity estimation errors.",
-        "Evidence": "We present SpillBound, the first algorithm for robust query processing that provides a platform-independent worst-case bound. Specifically, SpillBound delivers a worst-case multiplicative bound of D2 +3D, where D is simply the number of error-prone predicates in the user query."
-      },
-      "Q26": {
-        "correct_short_answer": "",
-        "QuestionText": "Aside from the main approach, does the paper mention any additional techniques to enhance robustness? If yes, list them. Otherwise, say 'Not provided'.",
-        "ShortAnswer": "Not provided",
-        "Reasoning": "The new context provided does not mention any additional techniques to enhance robustness aside from the main approach.",
-        "Evidence": "Not Applicable"
-      }
-    }
-  },
   "Robustness Metrics for Relational Query Execution Plans.pdf": {
     "metadata": {
       "paper_id": "100",
@@ -3933,7 +3139,7 @@
         "Evidence": "Results for chain, cycle, and snowflake topologies are summarized in Figure 9(c), by cumulative query execution time (Σ), best speedup (↑ EO ), and worst regression (↓ EO ) w.r.t. EO over 100 different datasets."
       },
       "Q8": {
-        "correct_short_answer": "The study proposes three novel robustness metrics (cardinality-slope, selectivity-slope, and cardinality-integral) to quantify plan sensitivity to estimation errors, then uses these metrics in a new plan selection strategy that considers both cost and robustness when choosing execution plans.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method aims to improve robustness by focusing on the robustness metric, which provides an upper bound for the cost error factor and considers the trade-off between plan robustness and query execution time. This approach helps in selecting plans that are less sensitive to estimation errors.",
@@ -4148,7 +3354,7 @@
         "Evidence": "Figure 9: The impact of the inference iterations on (a) the inference time, (b) suboptimality, (c) the accumulated runtime of the selected plans and (d) inference overheads for risk-based plan selection methods with 10 inference iterations vs. the baselines."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by using a risk-aware learned cost model that predicts both the expected execution time and the associated uncertainties. It quantifies plan, estimation, and suboptimality risks and incorporates these into risk-aware plan selection strategies. These strategies select plans not just based on expected cost but also on their risk profiles, ensuring more reliable performance across varying conditions.",
+        "correct_short_answer": "Yes",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method is designed to enhance robustness by using risk-aware strategies that incorporate uncertainties in plan evaluation and selection, thereby improving the robustness of query optimization.",
@@ -4563,7 +3769,7 @@
         "Evidence": "We experimentally compare those strategies, implemented in SkinnerDB, against various baselines. The appendix contains additional experimental results."
       },
       "Q8": {
-        "correct_short_answer": "The study improves rebustness by using reinforcement learning (the UCT algorithm) to learn optimal join orders on-the-fly, dividing query execution into small time slices, adaptively balancing exploration and exploitation, and employing three variants: Skinner-G (generic engine + timeout pyramid scheme), Skinner-H (hybrid with the traditional optimizer), Skinner-C (custom engine with fast multi-way joins and state sharing).",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method aims to improve robustness by optimizing query execution strategies and handling different join orders efficiently, even under challenging conditions.",
@@ -4783,7 +3989,7 @@
         "Evidence": "This section presents a detailed experimental analysis of Smooth Scan. We demonstrate that Smooth Scan achieves robust performance in a range of synthetic and real workloads without the need for accurate statistics, while existing approaches fail to do so."
       },
       "Q8": {
-        "correct_short_answer": "by introducing Smooth Scan, an adaptive access path operator that morphs between index scan and full table scan based on data distribution observed at runtime, without relying on statistics.",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The new context highlights that Elastic Smooth Scan provides a robust solution by offering a firm upper bound on suboptimality and ensuring consistent performance regardless of table size.",
@@ -4998,7 +4204,7 @@
         "Evidence": "deepDP can be implemented at LP and PP, which will benefit the query efficiency and query robustness. For deepDP self, we need to test the correctness of HR, the pruning efficiency, and the scalability."
       },
       "Q8": {
-        "correct_short_answer": "The study improve robustness by pruning unnecessary data to enhance the quality of the plan.",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method, deepDP, aims to improve robustness by thoroughly pruning unnecessary data, which is explicitly mentioned as a goal.",
@@ -5196,7 +4402,7 @@
         "Evidence": "Not Applicable"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by developing a probability-based cardinality estimation technique that explicitly accounts for uncertainty. Their approach uses Bayesian inference with precomputed random samples to derive probability distributions for query selectivity, rather than single-point estimates. They introduce a confidence threshold parameter that lets users specify their preferred tradeoff between performance and predictability. Higher confidence thresholds favor more predictable plans with consistent execution times, while lower thresholds favor potentially faster but riskier plans. This approach avoids the attribute value independence assumption, captures multi-dimensional correlations, and enables the query optimizer to make better decisions by acknowledging uncertainties rather than ignoring them.RetryClaude can make mistakes. Please double-check responses.",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The proposed method aims to improve robustness by addressing the shortcomings of the AVI assumption and incorporating a probability distribution for selectivity, which allows for better decision-making in query planning based on user preferences and the predictability vs. performance tradeoff.",
@@ -5408,7 +4614,7 @@
         "Evidence": "In general, the key observation is that the NNGP estimator performs supremely robust on various workloads, regardless of the number of training queries and the fraction of different queries."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by employing the Neural Network Gaussian Process (NNGP) estimator, which provides principled uncertainty calibration for predictions and uses a nonparametric kernel to smooth predictions, yielding stability under workload shifts. This approach helps in handling workload shifts and ensures that the model remains accurate and reliable under varying conditions.",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method is designed to enhance robustness by leveraging predictive uncertainty and active learning, which helps the model adapt to new data and minimize errors.",
@@ -5622,7 +4828,7 @@
         "Evidence": "For this experiment, we ran each setup three times using different seeds for the cost estimation for every unseen database. As we can see, the results are very similar to the results using our new benchmark for zero-shot cost estimation providing additional evidence that zero-shot cost estimation can improve the cost estimation accuracy on queries from standard benchmarks as well."
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing zero-shot cost models that pre-train on a variety of databases using a transferable graph-based query representation, separate database-dependent characteristics (e.g., cardinalities, tuple widths) as explicit inputs, and support few-shot fine-tuning on a small number of queries for new databases.",
+        "correct_short_answer": "Unsure",
         "QuestionText": "Does the proposed method aim to improve robustness? (Short answers: Yes, No, Unsure)",
         "ShortAnswer": "Yes",
         "Reasoning": "The method is designed to improve robustness by allowing the zero-shot cost models to generalize across different databases and query plans without needing retraining, thus maintaining accuracy despite changes.",

@@ -30,7 +30,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improve robustness by using an attention-based estimator that featurizes the evolving database as updatable histograms (DB states), applies self-attention to capture joint attribute distributions, and uses cross-attention with query features, thus adapting estimates immediately when data changes."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": "End-to-end query execution time, Q-error, and P-error under dynamic (including distribution-shift) workloads."
@@ -67,7 +67,7 @@
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "The study generate its training data by executing a historical stream of queries (with intervening inserts/deletes/updates), updating the DB-state histograms accordingly, and pairing each query\u2019s featurization and current DB states with its true cardinality."
+        "correct_short_answer": "The study generate its training data by executing a historical stream of queries (with intervening inserts/deletes/updates), updating the DB-state histograms accordingly, and pairing each query’s featurization and current DB states with its true cardinality."
       },
       "Q20": {
         "correct_short_answer": "Data are encoded as fixed-dimensional histograms per attribute (DB states); queries are encoded by concatenating join-predicate bit-vectors and filter-range boundary vectors."
@@ -123,7 +123,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "Balsa improves robustness in learned query optimization through five key techniques: (1) simulation-to-reality learning to gain broad plan space coverage before real execution, (2) dynamic timeouts to prevent learning stalls from disastrous plans, (3) safe exploration among only promising plans, (4) merging experiences from multiple independently trained agents to cover diverse optimization strategies, and (5) efficient on-policy learning to maximize plan exploration. These techniques enable Balsa to reliably generalize to unseen queries with different join patterns, even outperforming expert optimizers on challenging workloads."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -218,7 +218,7 @@
         "correct_short_answer": "No"
       },
       "Q2": {
-        "correct_short_answer": "It implicitly defines robustness as the optimizer\u2019s ability to maintain stable (in particular low tail) query performance by adapting to changes in workload, data, and schema."
+        "correct_short_answer": "It implicitly defines robustness as the optimizer’s ability to maintain stable (in particular low tail) query performance by adapting to changes in workload, data, and schema."
       },
       "Q3": {
         "correct_short_answer": "No Definitions Provided"
@@ -236,7 +236,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "Dynamic query hint selection using reinforcement learning (via Thompson sampling) to steer the traditional optimizer to avoid the worst case"
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -340,7 +340,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing BayesCard, a framework that leverages Bayesian network models within probabilistic programming languages to build an ensemble of models, combined with progressive sampling and compiled variable elimination inference, ensuring stable and efficient cardinality estimation under diverse data conditions."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -444,7 +444,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "CORDS improves query optimization robustness by automatically detecting correlations and soft functional dependencies between database columns that would otherwise lead to catastrophic selectivity estimation errors. By recommending column-group statistics for strongly correlated columns, it prevents optimizers from making naive independence assumptions that can cause query plans to be orders of magnitude slower than necessary. Experimental results show CORDS dramatically reduces worst-case execution times by an order of magnitude, while requiring minimal system overhead through efficient sampling techniques and strategic pruning of candidate column pairs."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -531,7 +531,7 @@
         "correct_short_answer": "No"
       },
       "Q2": {
-        "correct_short_answer": "The study defines robustness implicitly in this paper, which refers to the optimizer\u2019s ability to maintain good plan\u2010selection quality under dynamic, out-of-distribution workloads."
+        "correct_short_answer": "The study defines robustness implicitly in this paper, which refers to the optimizer’s ability to maintain good plan‐selection quality under dynamic, out-of-distribution workloads."
       },
       "Q3": {
         "correct_short_answer": "No Definitions Provided"
@@ -549,7 +549,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study introduces HybridQO, which uses a Monte Carlo Tree Search\u2013guided, learning-based join-order estimator to generate leading hints, supplements these hints via a traditional cost-based optimizer to form candidate plans, and applies an uncertainty-aware performance predictor to filter out high-uncertainty plans, thereby adapting to out-of-distribution queries."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -596,10 +596,10 @@
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "The study generates its training data by running sample workloads on the DBMS, extracting each executed plan\u2019s join order and actual execution time, and using these as (feature, label) pairs"
+        "correct_short_answer": "The study generates its training data by running sample workloads on the DBMS, extracting each executed plan’s join order and actual execution time, and using these as (feature, label) pairs"
       },
       "Q20": {
-        "correct_short_answer": "Query encoding: Flattened join-matrix (n\u00d7n) plus filter-selectivity vector, Join order encoding: Sequence of table embeddings fed through an LSTM, Plan encoding: Operator, table, and cost-model one-hot/real-valued features composed into a Tree-LSTM"
+        "correct_short_answer": "Query encoding: Flattened join-matrix (n×n) plus filter-selectivity vector, Join order encoding: Sequence of table embeddings fed through an LSTM, Plan encoding: Operator, table, and cost-model one-hot/real-valued features composed into a Tree-LSTM"
       },
       "Q21": {
         "correct_short_answer": "Yes"
@@ -745,7 +745,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "Fauce improves robustness in cardinality estimation through four key innovations: a sophisticated query featurization method that captures real correlations between database columns and tables, uncertainty quantification that provides confidence levels for estimates, a deep ensemble learning approach that combines multiple neural networks, and an uncertainty management system that identifies when estimates are unreliable. Crucially, Fauce includes a fall-back mechanism that triggers when uncertainties are high, storing problematic queries in a buffer for incremental learning and using sampling techniques to generate additional training data. This adaptive approach makes Fauce significantly more accurate (1.3\u00d7-6.7\u00d7 lower error rates) and faster (10\u00d7 faster inference) than existing methods, especially for complex queries."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -874,7 +874,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness through the SEER (Selectivity-Estimate-Error-Resistance) algorithm, which replaces error-sensitive plan choices with more stable alternatives. SEER works by reducing complex plan diagrams (visual representations of optimizer plan choices across the selectivity space) to simpler anorexic versions containing fewer plans. "
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": "Selectivity Error Resistance Factor (SERF)"
@@ -951,7 +951,7 @@
       "paper_id": "49",
       "pdf_filename": "Kepler Robust Learning for Faster Parametric Query Optimization.pdf",
       "title": "Kepler: Robust Learning for Parametric Query Optimization",
-      "authors": "Lyric Doshi, Vincent Zhuang, Gaurav Jain, Ryan Marcus, Haoyu Huang, Deniz Altinb\u00fcken, Eugene Brevdo, Campbell Fraser",
+      "authors": "Lyric Doshi, Vincent Zhuang, Gaurav Jain, Ryan Marcus, Haoyu Huang, Deniz Altinbüken, Eugene Brevdo, Campbell Fraser",
       "year": "2023"
     },
     "answers": {
@@ -977,7 +977,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by incorporating robust neural network prediction techniques, such as Spectral-normalized Neural Gaussian Processes (SNGPs), to accurately quantify prediction confidence and fall back to the database\u2019s query optimizer when uncertain. This approach helps decrease tail latency and reduce query regressions, ensuring that the system can handle dynamic workloads and out-of-distribution (OOD) inputs effectively. The use of Row Count Evolution (RCE) to generate a diverse set of candidate plans by perturbing sub-plan cardinality estimates."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -1083,7 +1083,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "By using deep learning to predict query cardinalities in situations where sampling-based approaches fail, particularly in '0-tuple situations', and by learning join-crossing correlations from data."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -1157,95 +1157,6 @@
       }
     }
   },
-  "LEON A New Framework for ML-Aided Query Optimization.pdf.json": {
-    "metadata": {
-      "paper_id": "57",
-      "pdf_filename": "LEON A New Framework for ML-Aided Query Optimization.pdf",
-      "title": "LEON: ANewFrameworkforML-AidedQueryOptimization",
-      "authors": "Xu Chen, Haitian Chen, Zibo Liang, Shuncheng Liu, Jinghong Wang, Kai Zeng, Han Su, Kai Zheng",
-      "year": "2023"
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": ""
-      },
-      "Q2": {
-        "correct_short_answer": ""
-      },
-      "Q3": {
-        "correct_short_answer": ""
-      },
-      "Q4": {
-        "correct_short_answer": ""
-      },
-      "Q5": {
-        "correct_short_answer": ""
-      },
-      "Q6": {
-        "correct_short_answer": ""
-      },
-      "Q7": {
-        "correct_short_answer": ""
-      },
-      "Q8": {
-        "correct_short_answer": ""
-      },
-      "Q9": {
-        "correct_short_answer": ""
-      },
-      "Q10": {
-        "correct_short_answer": ""
-      },
-      "Q11": {
-        "correct_short_answer": ""
-      },
-      "Q12": {
-        "correct_short_answer": ""
-      },
-      "Q13": {
-        "correct_short_answer": ""
-      },
-      "Q14": {
-        "correct_short_answer": ""
-      },
-      "Q15": {
-        "correct_short_answer": ""
-      },
-      "Q16": {
-        "correct_short_answer": ""
-      },
-      "Q17": {
-        "correct_short_answer": ""
-      },
-      "Q18": {
-        "correct_short_answer": ""
-      },
-      "Q19": {
-        "correct_short_answer": ""
-      },
-      "Q20": {
-        "correct_short_answer": ""
-      },
-      "Q21": {
-        "correct_short_answer": ""
-      },
-      "Q22": {
-        "correct_short_answer": ""
-      },
-      "Q23": {
-        "correct_short_answer": ""
-      },
-      "Q24": {
-        "correct_short_answer": ""
-      },
-      "Q25": {
-        "correct_short_answer": ""
-      },
-      "Q26": {
-        "correct_short_answer": ""
-      }
-    }
-  },
   "LOGER A Learned Optimizer towards Generating Efficient and Robust Query Execution Plans.pdf.json": {
     "metadata": {
       "paper_id": "59",
@@ -1277,13 +1188,13 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing several key strategies: 1. Utilizing Graph Transformer (GT) to capture relationships between tables and predicates, enhancing query representation. 2. Implementing Restricted Operator Search Space (ROSS) to leverage DBMS expertise to forbid particularly poor operators rather than selecting operators freely, reducing search risk. 3. Employing \u03b5-beam search for adaptive exploration, which combines beam search with \u03b5-greedy exploration to balance guided and random exploration across multiple paths. 4. Introducing reward weighting and log transformation in the loss function to stabilize reward values and reduce the impact of poor operators on performance."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
           "WRL (Workload Relative Latency)",
           "GMRL (Geometric Mean Relative Latency)",
-          "Relative latency percentiles (25th\u201375th percentile bands)",
+          "Relative latency percentiles (25th–75th percentile bands)",
           "Training stability metrics (e.g. standard deviation of WRL in later epochs)"
         ]
       },
@@ -1325,10 +1236,10 @@
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "The study generates its training data by bootstrapping an experience dataset by first using the DBMS optimizer to generate expert plans for each training query, then iteratively exploring via \u03b5-beam search, executing generated plans to collect latency rewards and updating a replay buffer. "
+        "correct_short_answer": "The study generates its training data by bootstrapping an experience dataset by first using the DBMS optimizer to generate expert plans for each training query, then iteratively exploring via ε-beam search, executing generated plans to collect latency rewards and updating a replay buffer. "
       },
       "Q20": {
-        "correct_short_answer": "Query samples are encoded as join graphs where node features combine learned table embeddings, column\u2011level statistics, and predicate vectors; a Graph Transformer produces query representations. Subplans are encoded via Tree\u2011LSTM over join trees, and restricted\u2011operator embeddings are averaged into an operator representation."
+        "correct_short_answer": "Query samples are encoded as join graphs where node features combine learned table embeddings, column‑level statistics, and predicate vectors; a Graph Transformer produces query representations. Subplans are encoded via Tree‑LSTM over join trees, and restricted‑operator embeddings are averaged into an operator representation."
       },
       "Q21": {
         "correct_short_answer": "No"
@@ -1348,7 +1259,7 @@
       "Q26": {
         "correct_short_answer": [
           "restricted operator search space (ROSS)",
-          "\u03b5-beam search",
+          "ε-beam search",
           "reward weighting",
           "log transformation"
         ]
@@ -1386,7 +1297,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "Neo leverages reinforcement learning to iteratively retrain a deep value network that is initially bootstrapped from an expert optimizer and continuously updated using actual query latencies. This process adapts plan selection and reduces sensitivity to estimation errors. In addition, Neo employs word2vec-based row vectors to automatically capture query predicate semantics from the underlying database, allowing the model to effectively handle unseen predicates based on their semantic similarity."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -1455,187 +1366,9 @@
           "Bootstrapping from an expert optimizer",
           "reinforcement learning with iterative value model retraining",
           "advanced query predicate encodings (R-Vector)",
-          "tree convolution\u2013based plan encoding",
+          "tree convolution–based plan encoding",
           "best-first plan search"
         ]
-      }
-    }
-  },
-  "Plan Bouquets A Fragrant Approach to Robust Query Processing.pdf.json": {
-    "metadata": {
-      "paper_id": "75",
-      "pdf_filename": "Plan Bouquets A Fragrant Approach to Robust Query Processing.pdf",
-      "title": "Plan bouquets: A fragrant approach to robust query processing",
-      "authors": "Dutt, A.; Haritsa, J.R.",
-      "year": "2016"
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": ""
-      },
-      "Q2": {
-        "correct_short_answer": ""
-      },
-      "Q3": {
-        "correct_short_answer": ""
-      },
-      "Q4": {
-        "correct_short_answer": ""
-      },
-      "Q5": {
-        "correct_short_answer": ""
-      },
-      "Q6": {
-        "correct_short_answer": ""
-      },
-      "Q7": {
-        "correct_short_answer": ""
-      },
-      "Q8": {
-        "correct_short_answer": ""
-      },
-      "Q9": {
-        "correct_short_answer": ""
-      },
-      "Q10": {
-        "correct_short_answer": ""
-      },
-      "Q11": {
-        "correct_short_answer": ""
-      },
-      "Q12": {
-        "correct_short_answer": ""
-      },
-      "Q13": {
-        "correct_short_answer": ""
-      },
-      "Q14": {
-        "correct_short_answer": ""
-      },
-      "Q15": {
-        "correct_short_answer": ""
-      },
-      "Q16": {
-        "correct_short_answer": ""
-      },
-      "Q17": {
-        "correct_short_answer": ""
-      },
-      "Q18": {
-        "correct_short_answer": ""
-      },
-      "Q19": {
-        "correct_short_answer": ""
-      },
-      "Q20": {
-        "correct_short_answer": ""
-      },
-      "Q21": {
-        "correct_short_answer": ""
-      },
-      "Q22": {
-        "correct_short_answer": ""
-      },
-      "Q23": {
-        "correct_short_answer": ""
-      },
-      "Q24": {
-        "correct_short_answer": ""
-      },
-      "Q25": {
-        "correct_short_answer": ""
-      },
-      "Q26": {
-        "correct_short_answer": ""
-      }
-    }
-  },
-  "Plan Bouquets Query Processing without Selectivity Estimation.pdf.json": {
-    "metadata": {
-      "paper_id": "76",
-      "pdf_filename": "Plan Bouquets Query Processing without Selectivity Estimation.pdf",
-      "title": "Plan bouquets: Query processing without selectivity estimation",
-      "authors": "Dutt, A.; Haritsa, J.R.",
-      "year": "2014"
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": ""
-      },
-      "Q2": {
-        "correct_short_answer": ""
-      },
-      "Q3": {
-        "correct_short_answer": ""
-      },
-      "Q4": {
-        "correct_short_answer": ""
-      },
-      "Q5": {
-        "correct_short_answer": ""
-      },
-      "Q6": {
-        "correct_short_answer": ""
-      },
-      "Q7": {
-        "correct_short_answer": ""
-      },
-      "Q8": {
-        "correct_short_answer": ""
-      },
-      "Q9": {
-        "correct_short_answer": ""
-      },
-      "Q10": {
-        "correct_short_answer": ""
-      },
-      "Q11": {
-        "correct_short_answer": ""
-      },
-      "Q12": {
-        "correct_short_answer": ""
-      },
-      "Q13": {
-        "correct_short_answer": ""
-      },
-      "Q14": {
-        "correct_short_answer": ""
-      },
-      "Q15": {
-        "correct_short_answer": ""
-      },
-      "Q16": {
-        "correct_short_answer": ""
-      },
-      "Q17": {
-        "correct_short_answer": ""
-      },
-      "Q18": {
-        "correct_short_answer": ""
-      },
-      "Q19": {
-        "correct_short_answer": ""
-      },
-      "Q20": {
-        "correct_short_answer": ""
-      },
-      "Q21": {
-        "correct_short_answer": ""
-      },
-      "Q22": {
-        "correct_short_answer": ""
-      },
-      "Q23": {
-        "correct_short_answer": ""
-      },
-      "Q24": {
-        "correct_short_answer": ""
-      },
-      "Q25": {
-        "correct_short_answer": ""
-      },
-      "Q26": {
-        "correct_short_answer": ""
       }
     }
   },
@@ -1670,7 +1403,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness through three main techniques: query masking during training, join bitmaps for better feature representation, and techniques to handle data updates with shuffled bitmaps"
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -1748,95 +1481,6 @@
       }
     }
   },
-  "Robust Query Processing.pdf.json": {
-    "metadata": {
-      "paper_id": "97",
-      "pdf_filename": "Robust Query Processing.pdf",
-      "title": "Robust query processing",
-      "authors": "Karthik, S.",
-      "year": "2016"
-    },
-    "answers": {
-      "Q1": {
-        "correct_short_answer": ""
-      },
-      "Q2": {
-        "correct_short_answer": ""
-      },
-      "Q3": {
-        "correct_short_answer": ""
-      },
-      "Q4": {
-        "correct_short_answer": ""
-      },
-      "Q5": {
-        "correct_short_answer": ""
-      },
-      "Q6": {
-        "correct_short_answer": ""
-      },
-      "Q7": {
-        "correct_short_answer": ""
-      },
-      "Q8": {
-        "correct_short_answer": ""
-      },
-      "Q9": {
-        "correct_short_answer": ""
-      },
-      "Q10": {
-        "correct_short_answer": ""
-      },
-      "Q11": {
-        "correct_short_answer": ""
-      },
-      "Q12": {
-        "correct_short_answer": ""
-      },
-      "Q13": {
-        "correct_short_answer": ""
-      },
-      "Q14": {
-        "correct_short_answer": ""
-      },
-      "Q15": {
-        "correct_short_answer": ""
-      },
-      "Q16": {
-        "correct_short_answer": ""
-      },
-      "Q17": {
-        "correct_short_answer": ""
-      },
-      "Q18": {
-        "correct_short_answer": ""
-      },
-      "Q19": {
-        "correct_short_answer": ""
-      },
-      "Q20": {
-        "correct_short_answer": ""
-      },
-      "Q21": {
-        "correct_short_answer": ""
-      },
-      "Q22": {
-        "correct_short_answer": ""
-      },
-      "Q23": {
-        "correct_short_answer": ""
-      },
-      "Q24": {
-        "correct_short_answer": ""
-      },
-      "Q25": {
-        "correct_short_answer": ""
-      },
-      "Q26": {
-        "correct_short_answer": ""
-      }
-    }
-  },
   "Robustness Metrics for Relational Query Execution Plans.pdf.json": {
     "metadata": {
       "paper_id": "100",
@@ -1868,13 +1512,13 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study proposes three novel robustness metrics (cardinality-slope, selectivity-slope, and cardinality-integral) to quantify plan sensitivity to estimation errors, then uses these metrics in a new plan selection strategy that considers both cost and robustness when choosing execution plans."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
           "cost error factor (c_err)",
-          "cost error factor improvement (\u0394c_err)",
-          "cost error factor dominance (\u03c1c_err and \u03b4c_err)",
+          "cost error factor improvement (Δc_err)",
+          "cost error factor dominance (ρc_err and δc_err)",
           "end-to-end query execution time",
           "speedup/regression factors"
         ]
@@ -1974,7 +1618,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by using a risk-aware learned cost model that predicts both the expected execution time and the associated uncertainties. It quantifies plan, estimation, and suboptimality risks and incorporates these into risk-aware plan selection strategies. These strategies select plans not just based on expected cost but also on their risk profiles, ensuring more reliable performance across varying conditions."
+        "correct_short_answer": "Yes"
       },
       "Q9": {
         "correct_short_answer": [
@@ -2173,7 +1817,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves rebustness by using reinforcement learning (the UCT algorithm) to learn optimal join orders on-the-fly, dividing query execution into small time slices, adaptively balancing exploration and exploitation, and employing three variants: Skinner-G (generic engine + timeout pyramid scheme), Skinner-H (hybrid with the traditional optimizer), Skinner-C (custom engine with fast multi-way joins and state sharing)."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": [
@@ -2278,7 +1922,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "by introducing Smooth Scan, an adaptive access path operator that morphs between index scan and full table scan based on data distribution observed at runtime, without relying on statistics."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": [
@@ -2382,7 +2026,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improve robustness by pruning unnecessary data to enhance the quality of the plan."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": "Robustness is measured as the correctness of cardinality estimation. So the gap bettwen the true cardinality and estimated cardinality is the metric for measuring robustness."
@@ -2471,7 +2115,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by developing a probability-based cardinality estimation technique that explicitly accounts for uncertainty. Their approach uses Bayesian inference with precomputed random samples to derive probability distributions for query selectivity, rather than single-point estimates. They introduce a confidence threshold parameter that lets users specify their preferred tradeoff between performance and predictability. Higher confidence thresholds favor more predictable plans with consistent execution times, while lower thresholds favor potentially faster but riskier plans. This approach avoids the attribute value independence assumption, captures multi-dimensional correlations, and enables the query optimizer to make better decisions by acknowledging uncertainties rather than ignoring them.RetryClaude can make mistakes. Please double-check responses."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": [
@@ -2556,7 +2200,7 @@
         "correct_short_answer": "No"
       },
       "Q2": {
-        "correct_short_answer": "The study defines robustness implicitly, which refers to the estimator\u2019s ability to maintain low prediction error (q-error or MSE) across varying training workloads, and \u201crisk\u201d refers to high prediction variance or uncertainty that may trigger fallback behaviour."
+        "correct_short_answer": "The study defines robustness implicitly, which refers to the estimator’s ability to maintain low prediction error (q-error or MSE) across varying training workloads, and “risk” refers to high prediction variance or uncertainty that may trigger fallback behaviour."
       },
       "Q3": {
         "correct_short_answer": "No Definitions Provided"
@@ -2574,7 +2218,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by employing the Neural Network Gaussian Process (NNGP) estimator, which provides principled uncertainty calibration for predictions and uses a nonparametric kernel to smooth predictions, yielding stability under workload shifts. This approach helps in handling workload shifts and ensures that the model remains accurate and reliable under varying conditions."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": [
@@ -2621,7 +2265,7 @@
         "correct_short_answer": "No"
       },
       "Q19": {
-        "correct_short_answer": "The study generates its training data by: In single-relation forest and higgs: For each d \u2208 [2\u2026D], uniformly sample d attributes and values per a data-centric distribution, generate 2 K queries. For join queries, each t \u2208 [0\u2026|T|\u22121], sample a starting relation then traverse the join graph for t steps, adding independent selection conditions; generate 4 K (TPC-H) or 3 K (TPC-DS) queries, then execute to collect true cardinalities."
+        "correct_short_answer": "The study generates its training data by: In single-relation forest and higgs: For each d ∈ [2…D], uniformly sample d attributes and values per a data-centric distribution, generate 2 K queries. For join queries, each t ∈ [0…|T|−1], sample a starting relation then traverse the join graph for t steps, adding independent selection conditions; generate 4 K (TPC-H) or 3 K (TPC-DS) queries, then execute to collect true cardinalities."
       },
       "Q20": {
         "correct_short_answer": "The study encodes the samples by following the existing work, where a select-project-join query is encoded by a fixed length vector. The encoding consists of two parts: the selection conditions and the join conditions. The two parts are encoded separately and concatenated. For selection conditions, the encoding of all the attributes in all the relations of the schema are concatenated by a fixed order (e.g., lexicographical order). For range filters on numerical attributes, the lower and upper bounds are normalized to [0,1]. For IN filters on categorical attributes, a bitmap representation is used. For join conditions, each joinable attribute pair is encoded using a 3-bit bitmap corresponding to the 3 comparison operators <, =, >. The bitmap '000' denotes that the query is free of join condition on the pair."
@@ -2681,7 +2325,7 @@
         "correct_short_answer": "experimental evaluation"
       },
       "Q8": {
-        "correct_short_answer": "The study improves robustness by introducing zero-shot cost models that pre-train on a variety of databases using a transferable graph-based query representation, separate database-dependent characteristics (e.g., cardinalities, tuple widths) as explicit inputs, and support few-shot fine-tuning on a small number of queries for new databases."
+        "correct_short_answer": "Unsure"
       },
       "Q9": {
         "correct_short_answer": [

@@ -1,185 +1,185 @@
 {
   "Q1": {
-    "F1": 0.3333,
-    "ROUGE-1": 0.3333,
-    "ROUGE-L": 0.3333,
-    "BERTScore-F1": 0.7766,
-    "Count": 27
+    "F1": 0.3913,
+    "ROUGE-1": 0.3913,
+    "ROUGE-L": 0.3913,
+    "BERTScore-F1": 0.9117,
+    "Count": 23
   },
   "Q2": {
-    "F1": 0.0872,
-    "ROUGE-1": 0.0914,
-    "ROUGE-L": 0.0858,
-    "BERTScore-F1": 0.6888,
-    "Count": 27
+    "F1": 0.1024,
+    "ROUGE-1": 0.1073,
+    "ROUGE-L": 0.1007,
+    "BERTScore-F1": 0.8086,
+    "Count": 23
   },
   "Q3": {
-    "F1": 0.0247,
-    "ROUGE-1": 0.0296,
-    "ROUGE-L": 0.0296,
-    "BERTScore-F1": 0.7046,
-    "Count": 27
+    "F1": 0.029,
+    "ROUGE-1": 0.0348,
+    "ROUGE-L": 0.0348,
+    "BERTScore-F1": 0.8272,
+    "Count": 23
   },
   "Q4": {
-    "F1": 0.6667,
-    "ROUGE-1": 0.6667,
-    "ROUGE-L": 0.6667,
-    "BERTScore-F1": 0.7774,
-    "Count": 27
+    "F1": 0.7826,
+    "ROUGE-1": 0.7826,
+    "ROUGE-L": 0.7826,
+    "BERTScore-F1": 0.9126,
+    "Count": 23
   },
   "Q5": {
-    "F1": 0.6296,
-    "ROUGE-1": 0.6296,
-    "ROUGE-L": 0.6296,
-    "BERTScore-F1": 0.8145,
-    "Count": 27
+    "F1": 0.7391,
+    "ROUGE-1": 0.7391,
+    "ROUGE-L": 0.7391,
+    "BERTScore-F1": 0.9562,
+    "Count": 23
   },
   "Q6": {
-    "F1": 0.8148,
-    "ROUGE-1": 0.8148,
-    "ROUGE-L": 0.8148,
-    "BERTScore-F1": 0.8145,
-    "Count": 27
+    "F1": 0.9565,
+    "ROUGE-1": 0.9565,
+    "ROUGE-L": 0.9565,
+    "BERTScore-F1": 0.9562,
+    "Count": 23
   },
   "Q7": {
-    "F1": 0.3148,
-    "ROUGE-1": 0.3148,
-    "ROUGE-L": 0.3148,
-    "BERTScore-F1": 0.7395,
-    "Count": 27
+    "F1": 0.3696,
+    "ROUGE-1": 0.3696,
+    "ROUGE-L": 0.3696,
+    "BERTScore-F1": 0.8681,
+    "Count": 23
   },
   "Q8": {
-    "F1": 0.0,
-    "ROUGE-1": 0.0,
-    "ROUGE-L": 0.0,
-    "BERTScore-F1": 0.6802,
-    "Count": 26
+    "F1": 0.6818,
+    "ROUGE-1": 0.6818,
+    "ROUGE-L": 0.6818,
+    "BERTScore-F1": 0.9989,
+    "Count": 22
   },
   "Q9": {
-    "F1": 0.0235,
-    "ROUGE-1": 0.0491,
-    "ROUGE-L": 0.0464,
-    "BERTScore-F1": 0.663,
-    "Count": 27
+    "F1": 0.0276,
+    "ROUGE-1": 0.0577,
+    "ROUGE-L": 0.0544,
+    "BERTScore-F1": 0.7783,
+    "Count": 23
   },
   "Q10": {
-    "F1": 0.2708,
-    "ROUGE-1": 0.5015,
-    "ROUGE-L": 0.4618,
-    "BERTScore-F1": 0.7272,
-    "Count": 27
+    "F1": 0.3179,
+    "ROUGE-1": 0.5887,
+    "ROUGE-L": 0.5421,
+    "BERTScore-F1": 0.8537,
+    "Count": 23
   },
   "Q11": {
-    "F1": 0.2593,
-    "ROUGE-1": 0.2593,
-    "ROUGE-L": 0.2593,
-    "BERTScore-F1": 0.7082,
-    "Count": 27
+    "F1": 0.3043,
+    "ROUGE-1": 0.3043,
+    "ROUGE-L": 0.3043,
+    "BERTScore-F1": 0.8314,
+    "Count": 23
   },
   "Q12": {
-    "F1": 0.0103,
-    "ROUGE-1": 0.009,
-    "ROUGE-L": 0.009,
-    "BERTScore-F1": 0.6542,
-    "Count": 27
+    "F1": 0.012,
+    "ROUGE-1": 0.0106,
+    "ROUGE-L": 0.0106,
+    "BERTScore-F1": 0.7679,
+    "Count": 23
   },
   "Q13": {
-    "F1": 0.6538,
-    "ROUGE-1": 0.6538,
-    "ROUGE-L": 0.6538,
-    "BERTScore-F1": 0.8378,
-    "Count": 26
+    "F1": 0.7727,
+    "ROUGE-1": 0.7727,
+    "ROUGE-L": 0.7727,
+    "BERTScore-F1": 0.9901,
+    "Count": 22
   },
   "Q14": {
-    "F1": 0.7037,
-    "ROUGE-1": 0.7037,
-    "ROUGE-L": 0.7037,
-    "BERTScore-F1": 0.8145,
-    "Count": 27
+    "F1": 0.8261,
+    "ROUGE-1": 0.8261,
+    "ROUGE-L": 0.8261,
+    "BERTScore-F1": 0.9561,
+    "Count": 23
   },
   "Q15": {
-    "F1": 0.3975,
-    "ROUGE-1": 0.3975,
-    "ROUGE-L": 0.3975,
-    "BERTScore-F1": 0.7331,
-    "Count": 27
+    "F1": 0.4667,
+    "ROUGE-1": 0.4667,
+    "ROUGE-L": 0.4667,
+    "BERTScore-F1": 0.8606,
+    "Count": 23
   },
   "Q16": {
-    "F1": 0.2593,
-    "ROUGE-1": 0.2593,
-    "ROUGE-L": 0.2593,
-    "BERTScore-F1": 0.7329,
-    "Count": 27
+    "F1": 0.3043,
+    "ROUGE-1": 0.3043,
+    "ROUGE-L": 0.3043,
+    "BERTScore-F1": 0.8603,
+    "Count": 23
   },
   "Q17": {
-    "F1": 0.6296,
-    "ROUGE-1": 0.6296,
-    "ROUGE-L": 0.6296,
-    "BERTScore-F1": 0.7935,
-    "Count": 27
+    "F1": 0.7391,
+    "ROUGE-1": 0.7391,
+    "ROUGE-L": 0.7391,
+    "BERTScore-F1": 0.9316,
+    "Count": 23
   },
   "Q18": {
-    "F1": 0.1111,
-    "ROUGE-1": 0.1111,
-    "ROUGE-L": 0.1111,
-    "BERTScore-F1": 0.7924,
-    "Count": 27
+    "F1": 0.1304,
+    "ROUGE-1": 0.1304,
+    "ROUGE-L": 0.1304,
+    "BERTScore-F1": 0.9302,
+    "Count": 23
   },
   "Q19": {
-    "F1": 0.156,
-    "ROUGE-1": 0.1717,
-    "ROUGE-L": 0.1579,
-    "BERTScore-F1": 0.6807,
-    "Count": 27
+    "F1": 0.1831,
+    "ROUGE-1": 0.2016,
+    "ROUGE-L": 0.1853,
+    "BERTScore-F1": 0.7991,
+    "Count": 23
   },
   "Q20": {
-    "F1": 0.1368,
-    "ROUGE-1": 0.1571,
-    "ROUGE-L": 0.1571,
-    "BERTScore-F1": 0.6749,
-    "Count": 27
+    "F1": 0.1606,
+    "ROUGE-1": 0.1844,
+    "ROUGE-L": 0.1844,
+    "BERTScore-F1": 0.7923,
+    "Count": 23
   },
   "Q21": {
-    "F1": 0.2963,
-    "ROUGE-1": 0.2963,
-    "ROUGE-L": 0.2963,
-    "BERTScore-F1": 0.7924,
-    "Count": 27
+    "F1": 0.3478,
+    "ROUGE-1": 0.3478,
+    "ROUGE-L": 0.3478,
+    "BERTScore-F1": 0.9302,
+    "Count": 23
   },
   "Q22": {
-    "F1": 0.3333,
-    "ROUGE-1": 0.3333,
-    "ROUGE-L": 0.3333,
-    "BERTScore-F1": 0.788,
-    "Count": 27
+    "F1": 0.3913,
+    "ROUGE-1": 0.3913,
+    "ROUGE-L": 0.3913,
+    "BERTScore-F1": 0.925,
+    "Count": 23
   },
   "Q23": {
-    "F1": 0.3333,
-    "ROUGE-1": 0.3333,
-    "ROUGE-L": 0.3333,
-    "BERTScore-F1": 0.7881,
-    "Count": 27
+    "F1": 0.3913,
+    "ROUGE-1": 0.3913,
+    "ROUGE-L": 0.3913,
+    "BERTScore-F1": 0.9252,
+    "Count": 23
   },
   "Q24": {
-    "F1": 0.1914,
-    "ROUGE-1": 0.2371,
-    "ROUGE-L": 0.2371,
-    "BERTScore-F1": 0.657,
-    "Count": 27
+    "F1": 0.2246,
+    "ROUGE-1": 0.2783,
+    "ROUGE-L": 0.2783,
+    "BERTScore-F1": 0.7713,
+    "Count": 23
   },
   "Q25": {
-    "F1": 0.4444,
-    "ROUGE-1": 0.4444,
-    "ROUGE-L": 0.4444,
-    "BERTScore-F1": 0.7769,
-    "Count": 27
+    "F1": 0.5217,
+    "ROUGE-1": 0.5217,
+    "ROUGE-L": 0.5217,
+    "BERTScore-F1": 0.912,
+    "Count": 23
   },
   "Q26": {
-    "F1": 0.0597,
-    "ROUGE-1": 0.0591,
-    "ROUGE-L": 0.0591,
-    "BERTScore-F1": 0.5179,
-    "Count": 27
+    "F1": 0.0701,
+    "ROUGE-1": 0.0694,
+    "ROUGE-L": 0.0694,
+    "BERTScore-F1": 0.6079,
+    "Count": 23
   },
   "Q27": {
     "F1": 0.0,
@@ -189,10 +189,10 @@
     "Count": 1
   },
   "overall": {
-    "F1": 0.3126,
-    "ROUGE-1": 0.3259,
-    "ROUGE-L": 0.3236,
-    "BERTScore-F1": 0.7346,
-    "TotalAnswers": 701
+    "F1": 0.3922,
+    "ROUGE-1": 0.4078,
+    "ROUGE-L": 0.405,
+    "BERTScore-F1": 0.8698,
+    "TotalAnswers": 597
   }
 }

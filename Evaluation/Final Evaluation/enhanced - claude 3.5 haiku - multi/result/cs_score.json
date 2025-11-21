@@ -35,8 +35,8 @@
         "num_papers": 22
     },
     "Q8": {
-        "avg_cosine_similarity": 0.14755982160568237,
-        "mauve_score": 0.0405767790644136,
+        "avg_cosine_similarity": 0.7854368686676025,
+        "mauve_score": 0.9873304482920484,
         "num_papers": 22
     },
     "Q9": {
