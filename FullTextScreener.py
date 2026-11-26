@@ -337,6 +337,48 @@ class Storage:
             print(f"Error occurred while clearing the database: {e}")
             return f"Clearing the database failed with error: {e}"
 
+class PaperIndexRegistry:
+    """
+    Which papers the persistent index holds. A paper's chunks are `Chunk` nodes with a `paper_key`; once all of
+    them are written, an `IndexedPaper` marker records their number. A paper counts as indexed only if its marker
+    exists and the chunk count still matches, so a paper interrupted mid-indexing is never reused.
+    Every query is restricted to one paper key; nothing here touches other papers.
+    """
+    def __init__(self, storage, driver=None) -> None:
+        self._ownsDriver = driver is None
+        self.driver = driver or GraphDatabase.driver(storage.url, auth=(storage.username, storage.password))
+
+    def _run(self, query, **params):
+        with self.driver.session() as session:
+            return [record.data() for record in session.run(query, **params)]
+
+    def countChunks(self, paperKey):
+        return self._run("MATCH (n:Chunk {paper_key: $k}) RETURN count(n) AS n", k=paperKey)[0]["n"]
+
+    def isIndexed(self, paperKey):
+        marker = self._run("MATCH (m:IndexedPaper {paper_key: $k}) RETURN m.n_chunks AS n_chunks", k=paperKey)
+        if not marker:
+            return False
+        expected = marker[0]["n_chunks"] or 0
+        return expected > 0 and self.countChunks(paperKey) == expected
+
+    def deletePaper(self, paperKey):
+        self._run("MATCH (n:Chunk {paper_key: $k}) DETACH DELETE n", k=paperKey)
+        self._run("MATCH (m:IndexedPaper {paper_key: $k}) DETACH DELETE m", k=paperKey)
+
+    def markIndexed(self, paperKey, fileName):
+        n = self.countChunks(paperKey)
+        if n == 0:
+            raise ValueError(f"No chunks were stored for {fileName} (key {paperKey}); it was not indexed.")
+        self._run("MERGE (m:IndexedPaper {paper_key: $k}) "
+                  "SET m.file_name = $f, m.n_chunks = $n, m.indexed_at = $t",
+                  k=paperKey, f=fileName, n=n, t=datetime.datetime.now().isoformat(timespec="seconds"))
+        return n
+
+    def close(self):
+        if self._ownsDriver:
+            self.driver.close()
+
 ################################ Index Building ################################
 class Index:
     """

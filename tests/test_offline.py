@@ -414,5 +414,84 @@ class PaperKeyTests(unittest.TestCase):
         self.assertIn("a.pdf", d.get_content(metadata_mode="embed"))
 
 
+class FakeRecord(dict):
+    def data(self):
+        return dict(self)
+
+
+class FakeNeo4j:
+    """A tiny in-memory stand-in for the Neo4j driver: chunk counts and IndexedPaper markers per paper key."""
+    def __init__(self, chunks=None, markers=None):
+        self.chunks = dict(chunks or {})
+        self.markers = dict(markers or {})
+        self.queries = []
+
+    def session(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def close(self):
+        pass
+
+    def run(self, query, **params):
+        self.queries.append((query, params))
+        key = params.get("k")
+        if "DELETE" in query:
+            if ":Chunk" in query:
+                self.chunks.pop(key, None)
+            if ":IndexedPaper" in query:
+                self.markers.pop(key, None)
+            return []
+        if "MERGE" in query:
+            self.markers[key] = params["n"]
+            return []
+        if "count(" in query:
+            return [FakeRecord(n=self.chunks.get(key, 0))]
+        if ":IndexedPaper" in query:
+            return [FakeRecord(n_chunks=self.markers[key])] if key in self.markers else []
+        raise AssertionError(f"unexpected query {query}")
+
+
+class RegistryTests(unittest.TestCase):
+    def registry(self, **kw):
+        self.db = FakeNeo4j(**kw)
+        return fts.PaperIndexRegistry(storage=None, driver=self.db)
+
+    def test_marked_with_matching_count_is_indexed(self):
+        self.assertTrue(self.registry(chunks={"k1": 12}, markers={"k1": 12}).isIndexed("k1"))
+
+    def test_unmarked_chunks_are_not_indexed(self):
+        self.assertFalse(self.registry(chunks={"k1": 12}).isIndexed("k1"))
+
+    def test_count_mismatch_is_not_indexed(self):
+        self.assertFalse(self.registry(chunks={"k1": 7}, markers={"k1": 12}).isIndexed("k1"))
+        self.assertFalse(self.registry(chunks={}, markers={"k1": 0}).isIndexed("k1"))
+
+    def test_delete_only_touches_that_key(self):
+        reg = self.registry(chunks={"k1": 3, "k2": 4}, markers={"k1": 3, "k2": 4})
+        reg.deletePaper("k1")
+        self.assertEqual(self.db.chunks, {"k2": 4})
+        self.assertEqual(self.db.markers, {"k2": 4})
+        for query, params in self.db.queries:
+            self.assertEqual(params.get("k"), "k1")
+            self.assertIn("$k", query)
+
+    def test_mark_with_zero_chunks_raises(self):
+        reg = self.registry()
+        with self.assertRaises(ValueError):
+            reg.markIndexed("k1", "a.pdf")
+        self.assertEqual(self.db.markers, {})
+
+    def test_mark_records_count(self):
+        reg = self.registry(chunks={"k1": 5})
+        self.assertEqual(reg.markIndexed("k1", "a.pdf"), 5)
+        self.assertTrue(reg.isIndexed("k1"))
+
+
 if __name__ == "__main__":
     unittest.main()
