@@ -288,37 +288,32 @@ Here are the categories of the imports:
         - Ensures the log directory and file exist.
         - Sets up logging handlers (file and stream) and adjusts log levels for third-party libraries like `requests` and `urllib3`.
         - Returns a logger object for the module.
-- **`safeApiCall(call, enableLogging, *args, **kwargs)`**
-    - **Purpose:** Safely executes an API call with automatic retries in case of errors.
+- **`safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)`**
+    - **Purpose:** Executes an API call with automatic retries for transient errors.
     - **How It Works:**
-        - Attempts the API call up to 20 times.
-        - Uses exponential backoff (with a random component) between attempts.
-        - Logs the duration of a successful call and any errors encountered.
-        - Raises an exception if all attempts fail.
-- **`cleanAndConvertJson(jsonText)`**
-    - **Purpose:** Cleans a JSON-formatted string (removing extraneous characters) and converts it into a Python dictionary.
-    - **How It Works:**
-        - Strips markers (e.g., backticks, extra quotes).
-        - Replaces escape sequences with proper characters.
-        - Tries to parse the cleaned string as JSON; if it fails, returns the cleaned string.
+        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to 8 times with capped exponential backoff and jitter.
+        - Raises `NonRetryableApiError` at once for errors that retrying cannot fix (HTTP 400, 401, 402, 403, 404).
+        - Raises `AgentStepLimitError` at once if the agent ran out of reasoning steps, so the caller can decide whether to ask again.
+- **`getOpenRouterContextWindow(modelName, apiKey)`**
+    - **Purpose:** Looks up the model's context length in OpenRouter's model listing (cached after the first success).
+    - **How It Works:** Retries the lookup; if it fails or the model is not listed, raises `PipelineConfigError` instead of falling back to llama-index's 3,900-token default. An explicit `context_window` in the config skips the lookup.
+- **`parseAnswer(text)`** (and the backward-compatible `cleanAndConvertJson(text)`)
+    - **Purpose:** Turns the model's reply into `{"Evidence", "Reasoning", "ShortAnswer"}`.
+    - **How It Works:** Accepts code fences, text around the JSON object, newlines inside strings, alias key names (`answer`, `justification`, `evidence`) and an answer nested in another object. Returns `None` if no answer can be found (`cleanAndConvertJson` returns the original text instead).
 - **`process_single_paper(row, questions, configPath, input_pdf_folder)`**
     - **Purpose:** Processes a single research paper:
-        - Instantiates a fresh `ChatbotAgents` instance.
-        - Clears any previous data and uploads a PDF corresponding to the paper.
-        - Indexes the PDF and iterates through a set of questions, retrieving answers for each.
-        - Returns the results in a dictionary mapping the paper ID to its answers.
-    - **How It Works:**
-        - Uses file management to locate and upload the PDF.
-        - Indexes the document using the vector-based retrieval system.
-        - Uses `safeApiCall` and the chatbot method to process each question.
-        - Cleans up resources after processing.
+        - Instantiates a fresh `ChatbotAgents` instance (so the per-paper memory starts empty).
+        - Clears any previous data, uploads and indexes the paper's PDF (refusing PDFs without a usable text layer).
+        - Asks every question (`_answerAllQuestions`): a reply that cannot be parsed is asked once more, and a question that still fails is recorded with an `error` key.
+        - Returns `{pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}`.
+    - **Saving:** a complete result goes to `<outputDir>/individual/<pdf>.json`; a paper with failed questions, or one interrupted by an error, goes to `<pdf>.partial.json`. Files are written atomically.
 - **`literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path)`**
-    - **Purpose:** Processes multiple papers for literature screening.
+    - **Purpose:** Processes every paper in the metadata file, one after another.
     - **How It Works:**
         - Reads metadata from a CSV or Excel file.
-        - For each paper, spawns a separate process (using multiprocessing) that calls `process_single_paper`.
-        - Aggregates results from all papers and writes them to a JSON file.
-        - Logs overall processing time and average time per paper.
+        - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`) and redoes partial, unreadable or outdated ones.
+        - Records an unexpected error in one paper and moves on; stops the run on `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C.
+        - Always writes the combined results to `output_json_path`, however the run ends, and logs the processing time.
 
 ## **Workflow Overview**
 
@@ -423,10 +418,10 @@ Assume we have 4 research papers with unique IDs and corresponding PDF files. Th
         - The **chatbot** function of **ChatbotAgents** is invoked.
         - If agent mode is enabled (`enable_agent = True`), the ReAct agent queries the vector engine tool.
         - The **QueryEngine** uses the **VectorIndexRetriever** to find the most similar sections from the paper’s index, and the **RetrieverQueryEngine** applies the prompt template and LLM to generate a final answer.
-        - The answer is cleaned and converted to JSON via `cleanAndConvertJson`.
+        - The reply is parsed into `Evidence`, `Reasoning` and `ShortAnswer` by `parseAnswer`; `QuestionText` is copied from the questionnaire.
     - **Result Collection:**
         
-        The system aggregates each paper's answers into a dictionary mapping the paper_id to its metadata and query responses.
+        The system aggregates each paper's answers into a dictionary mapping the paper's `pdf_filename` to its metadata and answers.
         
 3. **Aggregation and Output:**
     

@@ -1,23 +1,26 @@
-./__pycache__
-./Modules/__pycache__
-./venv
-/.venv
-./logs
-./input
-./.idea
-./__pycache__
+# Python and editor files
+__pycache__/
+venv/
+.venv/
+.idea/
 
-venv
-.venv
-__pycache__
-.idea
-logs 
-logs_temp
-output_temp
-output
-output*
-input
-form
-Evaluations - *
-/Config/ConfigLitScr.cfg
-neo4j_vol1
+# Runtime folders
+logs/
+logs_temp/
+input/
+form/
+neo4j_vol1/
+output/
+output_temp/
+/output*/
+
+# Evaluation results (kept on the openrouter branch, not in main)
+Evaluation/
+Evaluations - */
+
+# Live configs hold API keys: ignore every config except the key-free templates
+/Config/*.cfg
+!/Config/*Temp.cfg
+
+# Temporary files written by atomic saves
+*.json.tmp

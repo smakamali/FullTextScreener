@@ -1,0 +1,367 @@
+"""
+Offline tests for FullTextScreener.py: no API calls, no Neo4j, no models are loaded.
+
+Run from the repository root:
+    python -m unittest discover -s tests -v
+"""
+import json
+import os
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import FullTextScreener as fts  # noqa: E402
+
+
+class ParseAnswerTests(unittest.TestCase):
+    def assertAnswer(self, parsed, short, evidence=None):
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(list(parsed), ["Evidence", "Reasoning", "ShortAnswer"])
+        self.assertEqual(parsed["ShortAnswer"], short)
+        if evidence is not None:
+            self.assertEqual(parsed["Evidence"], evidence)
+
+    def test_plain_json(self):
+        text = json.dumps({"Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"})
+        self.assertAnswer(fts.parseAnswer(text), "Yes", "e")
+
+    def test_escaped_newline_inside_string(self):
+        # The old parser turned "\\n" into a real newline and then failed on it
+        text = json.dumps({"ShortAnswer": "Yes", "Evidence": "line one\nline two"})
+        self.assertAnswer(fts.parseAnswer(text), "Yes", "line one\nline two")
+
+    def test_latex_backslash(self):
+        text = json.dumps({"ShortAnswer": "No", "Evidence": "uses \\nabla f"})
+        self.assertAnswer(fts.parseAnswer(text), "No", "uses \\nabla f")
+
+    def test_raw_newline_inside_string(self):
+        text = '{"Evidence": "first\nsecond", "Reasoning": "r", "ShortAnswer": "Yes"}'
+        self.assertAnswer(fts.parseAnswer(text), "Yes", "first\nsecond")
+
+    def test_text_before_and_after(self):
+        text = 'Here is the answer: {"ShortAnswer": "Unsure", "Reasoning": "r", "Evidence": "e"} Hope this helps.'
+        self.assertAnswer(fts.parseAnswer(text), "Unsure")
+
+    def test_code_fence(self):
+        text = '```json\n{"Evidence": "e", "Reasoning": "r", "ShortAnswer": ["TPC-H", "JOB"]}\n```'
+        self.assertAnswer(fts.parseAnswer(text), ["TPC-H", "JOB"])
+
+    def test_alias_keys(self):
+        text = json.dumps({"answer": "Yes", "justification": "because", "evidence": "quote"})
+        parsed = fts.parseAnswer(text)
+        self.assertAnswer(parsed, "Yes", "quote")
+        self.assertEqual(parsed["Reasoning"], "because")
+
+    def test_nested_answer(self):
+        text = json.dumps({"Q7": {"ShortAnswer": "AQE", "Reasoning": "r", "Evidence": "e"}})
+        self.assertAnswer(fts.parseAnswer(text), "AQE")
+
+    def test_tool_json_wrapped_in_agent_json(self):
+        inner = {"answer": "Yes", "justification": "j", "evidence": "e"}
+        text = json.dumps({"QuestionText": "q", "ShortAnswer": inner})
+        self.assertAnswer(fts.parseAnswer(text), "Yes", "e")
+
+    def test_structured_short_answer_becomes_string(self):
+        text = json.dumps({"Evidence": "e", "Reasoning": "r",
+                           "ShortAnswer": {"technique": "AQE", "description": "re-optimizes"}})
+        self.assertAnswer(fts.parseAnswer(text), "technique: AQE; description: re-optimizes")
+
+    def test_double_encoded_json_string(self):
+        text = json.dumps(json.dumps({"ShortAnswer": "Yes", "Reasoning": "r", "Evidence": "e"}))
+        self.assertAnswer(fts.parseAnswer(text), "Yes")
+
+    def test_missing_keys_filled(self):
+        parsed = fts.parseAnswer('{"ShortAnswer": "Yes"}')
+        self.assertAnswer(parsed, "Yes", "")
+        self.assertEqual(parsed["Reasoning"], "")
+
+    def test_unparseable_returns_none(self):
+        self.assertIsNone(fts.parseAnswer("I could not find this in the paper."))
+        self.assertIsNone(fts.parseAnswer('{"note": "no answer key"}'))
+        self.assertIsNone(fts.parseAnswer(None))
+
+    def test_clean_and_convert_json_keeps_original_on_failure(self):
+        self.assertEqual(fts.cleanAndConvertJson("not json"), "not json")
+        self.assertEqual(fts.cleanAndConvertJson('{"ShortAnswer": "Yes"}')["ShortAnswer"], "Yes")
+
+
+def _httpError(status):
+    import httpx
+    import openai
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(status, request=request)
+    if status == 429:
+        return openai.RateLimitError("rate limited", response=response, body=None)
+    return openai.APIStatusError(f"status {status}", response=response, body=None)
+
+
+class ErrorHandlingTests(unittest.TestCase):
+    def test_http_status_found(self):
+        self.assertEqual(fts.getHttpStatus(_httpError(429)), 429)
+        self.assertEqual(fts.getHttpStatus(_httpError(402)), 402)
+        wrapped = RuntimeError("workflow failed")
+        wrapped.__cause__ = _httpError(401)
+        self.assertEqual(fts.getHttpStatus(wrapped), 401)
+        self.assertIsNone(fts.getHttpStatus(ValueError("no status here")))
+
+    def test_step_limit_detected(self):
+        self.assertTrue(fts.isAgentStepLimit(RuntimeError("Max iterations of 10 reached! Either something went wrong")))
+        self.assertFalse(fts.isAgentStepLimit(RuntimeError("connection reset")))
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_non_retryable_stops_at_once(self, sleep):
+        call = mock.Mock(side_effect=_httpError(402))
+        with self.assertRaises(fts.NonRetryableApiError):
+            fts.safeApiCall(call, enableLogging=False)
+        self.assertEqual(call.call_count, 1)
+        sleep.assert_not_called()
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_step_limit_not_retried(self, sleep):
+        call = mock.Mock(side_effect=RuntimeError("Max iterations of 10 reached!"))
+        with self.assertRaises(fts.AgentStepLimitError):
+            fts.safeApiCall(call, enableLogging=False)
+        self.assertEqual(call.call_count, 1)
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_transient_then_success(self, sleep):
+        call = mock.Mock(side_effect=[_httpError(429), _httpError(503), "ok"])
+        self.assertEqual(fts.safeApiCall(call, enableLogging=False), "ok")
+        self.assertEqual(call.call_count, 3)
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_transient_exhausted_reports_last_error(self, sleep):
+        call = mock.Mock(side_effect=_httpError(429))
+        with self.assertRaises(Exception) as ctx:
+            fts.safeApiCall(call, enableLogging=False, maxAttempts=3)
+        self.assertIn("after 3 attempts", str(ctx.exception))
+
+
+class ContextWindowTests(unittest.TestCase):
+    def setUp(self):
+        fts._openRouterContextCache.clear()
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_failed_lookup_raises_and_is_not_cached(self, sleep):
+        with mock.patch("requests.get", side_effect=ConnectionError("down")):
+            with self.assertRaises(fts.PipelineConfigError):
+                fts.getOpenRouterContextWindow("mistralai/mistral-large-2512")
+        self.assertNotIn("mistralai/mistral-large-2512", fts._openRouterContextCache)
+
+    def test_unknown_model_raises(self):
+        response = mock.Mock(**{"json.return_value": {"data": [{"id": "other/model", "context_length": 8000}]}})
+        with mock.patch("requests.get", return_value=response):
+            with self.assertRaises(fts.PipelineConfigError):
+                fts.getOpenRouterContextWindow("mistral/mistral-large-latest")
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_success_after_retry_is_cached(self, sleep):
+        response = mock.Mock(**{"json.return_value": {"data": [{"id": "m/x", "context_length": 262144}]}})
+        with mock.patch("requests.get", side_effect=[ConnectionError("blip"), response]) as get:
+            self.assertEqual(fts.getOpenRouterContextWindow("m/x"), 262144)
+            self.assertEqual(fts.getOpenRouterContextWindow("m/x"), 262144)
+        self.assertEqual(get.call_count, 2)
+
+
+class MemoryLimitTests(unittest.TestCase):
+    def agent(self, contextWindow, limit=100000, maxNew=1024):
+        agent = fts.ChatbotAgents.__new__(fts.ChatbotAgents)
+        agent.memory_token_limit = limit
+        agent.max_new_tokens = maxNew
+        agent.llm = types.SimpleNamespace(metadata=types.SimpleNamespace(context_window=contextWindow))
+        return agent
+
+    def test_large_window_keeps_configured_limit(self):
+        self.assertEqual(self.agent(262144).effectiveMemoryLimit(), 100000)
+
+    def test_small_window_caps_limit(self):
+        self.assertEqual(self.agent(32768).effectiveMemoryLimit(), 32768 - 1024 - fts.ChatbotAgents.PROMPT_MARGIN_TOKENS)
+
+    def test_tiny_window_has_floor(self):
+        self.assertEqual(self.agent(8000).effectiveMemoryLimit(), fts.ChatbotAgents.MIN_MEMORY_TOKENS)
+
+
+class FakeAgent:
+    """Stands in for ChatbotAgents: returns scripted replies (or raises scripted errors) in order."""
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.queries = []
+
+    def chatbot(self, queryStr, history):
+        self.queries.append(queryStr)
+        reply = self.replies.pop(0)
+        if isinstance(reply, BaseException):
+            raise reply
+        return reply
+
+
+GOOD = json.dumps({"Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"})
+
+
+@mock.patch.object(fts.time, "sleep")
+class AnswerLoopTests(unittest.TestCase):
+    def test_reask_after_unparseable_reply(self, sleep):
+        agent = FakeAgent(["no json here", GOOD])
+        answers = {}
+        failed = fts._answerAllQuestions(agent, {"Q1": "Question one?"}, answers, enableLogging=False)
+        self.assertEqual(failed, 0)
+        self.assertEqual(answers["Q1"]["ShortAnswer"], "Yes")
+        self.assertEqual(answers["Q1"]["QuestionText"], "Question one?")
+        self.assertIn("could not be read", agent.queries[1])
+
+    def test_failed_question_recorded_and_run_continues(self, sleep):
+        agent = FakeAgent(["bad", "still bad", GOOD])
+        answers = {}
+        failed = fts._answerAllQuestions(agent, {"Q1": "one?", "Q2": "two?"}, answers, enableLogging=False)
+        self.assertEqual(failed, 1)
+        self.assertIn("error", answers["Q1"])
+        self.assertEqual(answers["Q1"]["raw"], "still bad")
+        self.assertEqual(answers["Q2"]["ShortAnswer"], "Yes")
+
+    def test_step_limit_asked_once_more(self, sleep):
+        agent = FakeAgent([RuntimeError("Max iterations of 10 reached!"), GOOD])
+        answers = {}
+        self.assertEqual(fts._answerAllQuestions(agent, {"Q1": "one?"}, answers, enableLogging=False), 0)
+        self.assertEqual(len(agent.queries), 2)
+
+    def test_non_retryable_propagates(self, sleep):
+        agent = FakeAgent([_httpError(402)])
+        with self.assertRaises(fts.NonRetryableApiError):
+            fts._answerAllQuestions(agent, {"Q1": "one?"}, {}, enableLogging=False)
+
+
+class ResumeTests(unittest.TestCase):
+    QUESTIONS = {"Q1": "one?", "Q2": "two?"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.tmp.name
+        self.individual = os.path.join(root, "output", "individual")
+        os.makedirs(self.individual)
+        self.output = os.path.join(root, "output", "output.json")
+        self.metadata = os.path.join(root, "metadata.csv")
+        with open(self.metadata, "w", encoding="utf-8") as f:
+            f.write("paper_id,pdf_filename,title,authors,year\n1,a.pdf,A,X,2020\n2,b.pdf,B,Y,2021\n")
+        self.config = os.path.join(root, "test.cfg")
+        with open(self.config, "w", encoding="utf-8") as f:
+            f.write(f"[general]\nskip_existing = True\n[dir-structure]\noutputDir = {os.path.join(root, 'output')}\n")
+        self.hash = fts.questionnaireHash(self.QUESTIONS)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def complete(self, **extra):
+        answers = {q: {"QuestionText": t, "Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"}
+                   for q, t in self.QUESTIONS.items()}
+        return {"metadata": {}, "answers": answers, **extra}
+
+    def writeIndividual(self, name, content):
+        with open(os.path.join(self.individual, name), "w", encoding="utf-8") as f:
+            f.write(content if isinstance(content, str) else json.dumps(content))
+
+    def fakeProcess(self, row, questions, configPath, folder):
+        self.processed.append(row["pdf_filename"])
+        return {row["pdf_filename"]: self.complete(questionnaire_sha256=self.hash)}
+
+    def run_screening(self, side_effect=None):
+        self.processed = []
+        with mock.patch.object(fts, "process_single_paper", side_effect=side_effect or self.fakeProcess):
+            fts.literature_screening(self.metadata, self.QUESTIONS, self.config, "pdfs", self.output)
+
+    def test_check_complete_result(self):
+        ok, _ = fts.checkCompleteResult(self.complete(questionnaire_sha256=self.hash), self.QUESTIONS, self.hash)
+        self.assertTrue(ok)
+        ok, _ = fts.checkCompleteResult(self.complete(), self.QUESTIONS, self.hash)  # written before the fingerprint
+        self.assertTrue(ok)
+        ok, why = fts.checkCompleteResult(self.complete(questionnaire_sha256="other"), self.QUESTIONS, self.hash)
+        self.assertFalse(ok)
+        self.assertIn("different questionnaire", why)
+        broken = self.complete()
+        broken["answers"]["Q2"] = "raw text"
+        self.assertFalse(fts.checkCompleteResult(broken, self.QUESTIONS, self.hash)[0])
+        missing = self.complete()
+        del missing["answers"]["Q1"]
+        self.assertFalse(fts.checkCompleteResult(missing, self.QUESTIONS, self.hash)[0])
+
+    def test_reuses_complete_and_redoes_truncated(self):
+        self.writeIndividual("a.pdf.json", self.complete(questionnaire_sha256=self.hash))
+        self.writeIndividual("b.pdf.json", '{"metadata": {"truncated')
+        self.run_screening()
+        self.assertEqual(self.processed, ["b.pdf"])
+        with open(self.output, encoding="utf-8") as f:
+            self.assertEqual(sorted(json.load(f)), ["a.pdf", "b.pdf"])
+
+    def test_partial_only_is_redone(self):
+        self.writeIndividual("a.pdf.partial.json", self.complete())
+        self.run_screening()
+        self.assertEqual(self.processed, ["a.pdf", "b.pdf"])
+
+    def test_outdated_questionnaire_is_redone(self):
+        self.writeIndividual("a.pdf.json", self.complete(questionnaire_sha256="old"))
+        self.run_screening()
+        self.assertIn("a.pdf", self.processed)
+
+    def test_combined_output_written_when_run_stops(self):
+        def stopOnSecond(row, *args):
+            if row["pdf_filename"] == "b.pdf":
+                raise fts.NonRetryableApiError(402, "out of credit")
+            return self.fakeProcess(row, *args)
+        with self.assertRaises(fts.NonRetryableApiError):
+            self.run_screening(side_effect=stopOnSecond)
+        with open(self.output, encoding="utf-8") as f:
+            self.assertEqual(list(json.load(f)), ["a.pdf"])
+
+    def test_unexpected_paper_error_does_not_stop_run(self):
+        def failFirst(row, *args):
+            if row["pdf_filename"] == "a.pdf":
+                raise RuntimeError("unexpected")
+            return self.fakeProcess(row, *args)
+        self.run_screening(side_effect=failFirst)
+        with open(self.output, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertIn("error", data["a.pdf"]["answers"])
+        self.assertIn("b.pdf", data)
+
+
+class ConfigResolutionTests(unittest.TestCase):
+    def test_explicit_missing_config_raises(self):
+        with self.assertRaises(fts.PipelineConfigError):
+            fts.resolveConfigPath("does/not/exist.cfg")
+
+    def test_legacy_config_name_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "Config"))
+            open(os.path.join(tmp, "Config", "ConfigLitScrInUse.cfg"), "w").close()
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("FTS_CONFIG", None)
+                    self.assertEqual(fts.resolveConfigPath(None), fts.LEGACY_CONFIG_PATH)
+            finally:
+                os.chdir(cwd)
+
+    def test_questions_fallback(self):
+        config = types.SimpleNamespace(dir_structure={})
+        path = fts.resolveQuestionsPath(config)
+        self.assertTrue(path.endswith(os.path.join("Questionnaires", "questions_v1.json")))
+        self.assertTrue(os.path.isfile(path))
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)), 25)
+
+
+class AtomicWriteTests(unittest.TestCase):
+    def test_no_temp_file_left(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "x.json")
+            fts.writeJsonAtomic(path, {"a": 1})
+            self.assertEqual(os.listdir(tmp), ["x.json"])
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f), {"a": 1})
+
+
+if __name__ == "__main__":
+    unittest.main()

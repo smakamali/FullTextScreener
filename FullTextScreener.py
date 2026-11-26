@@ -1,4 +1,4 @@
-#################################### appVersion = 0.9.0 ######################################
+#################################### appVersion = 0.9.1 ######################################
 # TODO: harmonize config management
 # TODO: make sure the questions are articulated independently
 ################################ Import Required Dependencies ################################
@@ -12,7 +12,6 @@ os.environ["HF_DATASETS_CACHE"] = os.path.join(os.environ["HF_HOME"], "datasets"
 os.environ["HF_METRICS_CACHE"] = os.path.join(os.environ["HF_HOME"], "metrics")
 os.environ["LLAMA_INDEX_CACHE_DIR"] = os.path.expanduser("~/.cache/llama_index")
 
-import os
 import sys
 import gc
 import shutil
@@ -22,6 +21,9 @@ import random
 import re
 import json
 import csv
+import hashlib
+import argparse
+import datetime
 import pandas as pd
 from configparser import ConfigParser
 from tqdm import tqdm
@@ -60,12 +62,12 @@ You are a literature screening assistant. Your role is to analyze academic paper
 You always follow these rules:
     Rule 1: Your main goal is to answer each question as accurately and concisely as possible, using only the context provided.
     Rule 2: NEVER answer from general knowledge or assumptions. If the answer is not supported by the document, return "Unsure".
-    Rule 3: Output must be in JSON format. Do NOT include any surrounding explanation or formatting.
-    Rule 4: Each answer must include:
-        - "answer": the short-form answer (e.g., Yes, No, Unsure, or a concise phrase).
-        - "justification": a short natural language explanation of why that answer was selected.
-        - "evidence": the most semantically similar span or sentence(s) from the source text.
-    Rule 5: Use the query engine to find relevant content for every question. Do not rely on prior interactions or history.
+    Rule 3: Your final answer must be a single JSON object. Do NOT include any surrounding explanation or formatting.
+    Rule 4: The JSON object has exactly these keys, in this order, so that you gather the evidence and reason about it before committing to an answer:
+        - "Evidence": the exact sentence(s) from the paper that support the answer, or "Not Applicable" if there are none.
+        - "Reasoning": a short explanation of how the evidence leads to the answer.
+        - "ShortAnswer": the short-form answer (e.g., Yes, No, Unsure, one of the listed options, or a concise phrase or list).
+    Rule 5: Use the query engine tool to retrieve the relevant passages for every question, even if an earlier question covered a similar topic. You may use your earlier answers about this paper to stay consistent, but every answer must rest on evidence retrieved from the paper.
     Rule 6: 
     - If the question expects a categorical answer (e.g., "Yes", "No", "Unsure"), choose the best matching label.
     - If the question asks for a description, list, or procedure, write a short, meaningful answer based directly on document content. Avoid repeating placeholder phrases like “a description of the process”.
@@ -111,9 +113,6 @@ class Config:
             return value
 
 ################################ Helper Functions and classes ################################
-import json
-import datetime
-
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
@@ -158,7 +157,6 @@ def setLogging(config):
     logDir = config.dir_structure['logdir']
     logFile = config.dir_structure['logfile']
     ensureFolderExists(logDir)
-    touch(logFile)
     if enableLogging:
         logPath = os.path.join(logDir, logFile)
         touch(logPath)
@@ -182,6 +180,22 @@ class NonRetryableApiError(Exception):
 # 400 bad request (e.g., prompt too long), 401 invalid key, 402 out of credit / spending limit,
 # 403 forbidden, 404 unknown model. 408, 429 and 5xx are transient and are retried.
 NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404}
+
+class PipelineConfigError(Exception):
+    """A setup problem that affects every paper (bad config, unknown model); the run stops at once."""
+
+class AgentStepLimitError(Exception):
+    """The ReAct agent reached `max_iterations` without producing a final answer."""
+
+def isAgentStepLimit(error):
+    """True if `error` (or anything it wraps) is the agent's "max iterations reached" error."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        seen.add(id(error))
+        if isinstance(error, AgentStepLimitError) or re.search(r'max(imum)?[ _]iterations', str(error), re.I):
+            return True
+        error = error.__cause__ or error.__context__
+    return False
 
 def getHttpStatus(error):
     """Find an HTTP status code on an exception or anything it wraps; None if there is none."""
@@ -208,6 +222,7 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)
     (1, 2, 4, ... seconds, at most `maxWait` each). Errors that retrying cannot fix
     (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately.
     """
+    lastError = None
     for attempt in range(maxAttempts):
         try:
             startTime = time.time()
@@ -224,13 +239,18 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)
                 logging.error(log_str)
                 print(log_str)
                 raise NonRetryableApiError(status, str(e)) from e
+            if isAgentStepLimit(e):
+                # Not an API problem: the agent used up its reasoning steps. Retrying the identical call
+                # would mostly repeat the same loop, so hand it back to the caller, which may ask once more.
+                raise AgentStepLimitError(str(e)) from e
+            lastError = e
             wait = min(2 ** attempt, maxWait) + random.random()
             if enableLogging:
                 log_str = f"Error occurred (attempt {attempt + 1}/{maxAttempts}): {e}. Waiting for {wait:.2f} seconds."
                 logging.warning(log_str)
                 print(log_str)
             time.sleep(wait)
-    raise Exception(f"API call failed after {maxAttempts} attempts")
+    raise Exception(f"API call failed after {maxAttempts} attempts; last error: {lastError}")
 
 ################################ File Management ################################
 class FileManagement:
@@ -419,44 +439,64 @@ class Index:
 ################################ OpenRouter Helpers ################################
 _openRouterContextCache = {}
 
-def getOpenRouterContextWindow(modelName, apiKey=None, timeout=30):
+def getOpenRouterContextWindow(modelName, apiKey=None, timeout=30, attempts=3):
     """
-    Return the context length OpenRouter lists for `modelName`, or None if it cannot be found.
-    The result is cached per process, so the listing is fetched once per run, not once per paper.
+    Return the context length OpenRouter lists for `modelName`.
+
+    Only a successful lookup is cached (once per process, so the listing is fetched once per run).
+    The lookup is retried a few times; if it still fails, or the model is not listed, this raises
+    PipelineConfigError instead of returning None: falling back to llama-index's 3,900-token default would
+    silently truncate the retrieved context. Set `context_window` in the config to skip the lookup.
     """
     if modelName in _openRouterContextCache:
         return _openRouterContextCache[modelName]
-    contextLength = None
-    try:
-        import requests
-        headers = {"Authorization": f"Bearer {apiKey}"} if apiKey else {}
-        response = requests.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=timeout)
-        response.raise_for_status()
-        for model in response.json().get("data", []):
+    import requests
+    headers = {"Authorization": f"Bearer {apiKey}"} if apiKey else {}
+    lastError = None
+    for attempt in range(attempts):
+        try:
+            response = requests.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=timeout)
+            response.raise_for_status()
+            models = response.json().get("data", [])
+        except Exception as e:
+            lastError = e
+            print(f"Context-window lookup for '{modelName}' failed (attempt {attempt + 1}/{attempts}): {e}")
+            time.sleep(2 ** attempt)
+            continue
+        for model in models:
             if model.get("id") == modelName:
                 contextLength = model.get("context_length") or (model.get("top_provider") or {}).get("context_length")
-                break
-        if contextLength is None:
-            print(f"OpenRouter model '{modelName}' not found in the model listing; using llama-index's default context window.")
-    except Exception as e:
-        print(f"Could not look up the context window for '{modelName}' on OpenRouter ({e}); using llama-index's default.")
-    _openRouterContextCache[modelName] = int(contextLength) if contextLength else None
-    return _openRouterContextCache[modelName]
+                if contextLength:
+                    _openRouterContextCache[modelName] = int(contextLength)
+                    return _openRouterContextCache[modelName]
+        raise PipelineConfigError(
+            f"OpenRouter does not list the model '{modelName}' (or lists no context length for it). "
+            f"Check `model_name` in the [openrouter] config section (OpenRouter ids look like "
+            f"'mistralai/mistral-large-2512'), or set `context_window` there explicitly.")
+    raise PipelineConfigError(
+        f"Could not look up the context window for '{modelName}' on OpenRouter after {attempts} attempts "
+        f"({lastError}). Set `context_window` in the [openrouter] config section to run without the lookup.")
 
 ################################ Query Engine ################################
 class QueryEngine:
     """
     Builds and manages the query engine for vector-based retrieval.
     """
+    # The retrieval tool returns plain text (relevant passages and a short answer). Only the agent
+    # writes the JSON answer, so the tool output is never a second, competing JSON object.
     chatTextQaMsgs = [
         (
             "user",
-            systemMessage + """
-            Context:
-            {context_str}
-            Question:
-            {query_str}
-            """
+            """You are given excerpts from one academic paper. Using only these excerpts, answer the query.
+Quote the exact sentences that support your answer. If the excerpts do not contain the answer, say so plainly.
+Do not use outside knowledge, and do not format your reply as JSON.
+
+Excerpts:
+{context_str}
+
+Query:
+{query_str}
+"""
         )
     ]
     textQaTemplate = ChatPromptTemplate.from_messages(chatTextQaMsgs)
@@ -493,32 +533,6 @@ class QueryEngine:
 
 ################################ Chatbot Agents ################################
 
-# openrouter class
-# class OpenRouterLLM:
-#     def __init__(self, api_key, model_name, temperature=0.0, max_new_tokens=1024):
-#         self.api_key = api_key
-#         self.model_name = model_name
-#         self.temperature = temperature
-#         self.max_new_tokens = max_new_tokens
-
-#     def generate(self, prompt):
-#         import requests
-#         url = "https://openrouter.ai/api/v1/chat/completions"
-#         headers = {
-#             "Authorization": f"Bearer {self.api_key}",
-#             "Content-Type": "application/json"
-#         }
-#         payload = {
-#             "model": self.model_name,
-#             "messages": [{"role": "user", "content": prompt}],
-#             "temperature": self.temperature,
-#             "max_tokens": self.max_new_tokens
-#         }
-#         response = requests.post(url, headers=headers, json=payload)
-#         response.raise_for_status()
-#         data = response.json()
-#         return data["choices"][0]["message"]["content"]
-
 class ChatbotAgents:
     """
     Integrates the language model, query engine, and related tools.
@@ -545,11 +559,33 @@ class ChatbotAgents:
         # One memory buffer and event loop per ChatbotAgents instance (i.e., per paper):
         # every question for this paper is answered with the full history of earlier
         # questions and answers. A new paper creates a new instance, so memory starts empty.
-        self.memory = ChatMemoryBuffer.from_defaults(token_limit=self.memory_token_limit)
+        self.memory = ChatMemoryBuffer.from_defaults(token_limit=self.effectiveMemoryLimit())
         self._loop = asyncio.new_event_loop()
         self.updateQueryEngine()
         self.selectDefaultAgent()
     
+    # Tokens kept free in every request besides the memory: system prompt, tool description,
+    # the question, and the retrieved passages (vectorTopK chunks of up to chunk_size tokens each).
+    PROMPT_MARGIN_TOKENS = 20000
+    MIN_MEMORY_TOKENS = 2000
+
+    def effectiveMemoryLimit(self):
+        """
+        The configured memory_token_limit, capped so that memory plus a prompt and a reply still fit in
+        the model's context window. Without the cap, a model with a smaller window would eventually get
+        HTTP 400 (prompt too long), which stops the run.
+        """
+        limit = self.memory_token_limit
+        contextWindow = getattr(getattr(self.llm, 'metadata', None), 'context_window', None)
+        if contextWindow:
+            cap = contextWindow - self.max_new_tokens - self.PROMPT_MARGIN_TOKENS
+            cap = max(cap, self.MIN_MEMORY_TOKENS)
+            if cap < limit:
+                print(f"memory_token_limit {limit} exceeds what fits in the {contextWindow}-token context window; "
+                      f"using {cap}.")
+                limit = cap
+        return limit
+
     def getModelConfigs(self, configPath):
         config = ConfigParser()
         config.read(configPath)
@@ -571,6 +607,9 @@ class ChatbotAgents:
         # Defaults to CPU at full precision; see buildHuggingFaceEmbedding for the options.
         self.embedDevice = config.get(self.service, 'embed_device', fallback='cpu')
         self.embedQuantization = config.get(self.service, 'embed_quantization', fallback='none')
+        # Maximum token length of a text passed to a HuggingFace embedding model. The default keeps the
+        # earlier behaviour (embedDim); chunks are usually far shorter (chunk_size), so it rarely matters.
+        self.embedMaxLength = config.getint(self.service, 'embed_max_length', fallback=self.embedDim)
 
     def getMistralLlmAndEmbedding(self):
         from llama_index.llms.mistralai import MistralAI
@@ -590,7 +629,7 @@ class ChatbotAgents:
             from llama_index.embeddings.huggingface import HuggingFaceEmbedding
             self.embedModel = HuggingFaceEmbedding(
                 model_name=self.embeddingModelName, 
-                max_length=self.embedDim,
+                max_length=self.embedMaxLength,
                 trust_remote_code=True
             )
 
@@ -619,14 +658,14 @@ class ChatbotAgents:
             # query_wrapper_prompt=query_wrapper_prompt,
             tokenizer_name=self.llmModel,
             model_name=self.llmModel,
-            device_map="cuda:0",
+            device_map="auto",
             model_kwargs={
                 "quantization_config": quantization_config,
             },
         )
         self.embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName, 
-            max_length=self.embedDim,
+            max_length=self.embedMaxLength,
             trust_remote_code=True
         )
 
@@ -636,10 +675,8 @@ class ChatbotAgents:
         # Context window: an explicit `context_window` in the [openrouter] config section wins;
         # otherwise use the model's own context length from OpenRouter's model listing.
         # Without this, llama-index falls back to its 3,900-token default for every OpenRouter model.
+        # The lookup raises a clear error rather than falling back to the default.
         contextWindow = self.contextWindow or getOpenRouterContextWindow(self.llmModel, self.apiKey)
-        llmKwargs = {}
-        if contextWindow:
-            llmKwargs['context_window'] = contextWindow
 
         # LLM using OpenRouter API
         self.llm = OpenRouter(
@@ -647,7 +684,7 @@ class ChatbotAgents:
             model=self.llmModel,
             temperature=self.temperature,
             max_tokens=self.max_new_tokens,
-            **llmKwargs
+            context_window=contextWindow,
         )
         print(f"OpenRouter model {self.llmModel}: context_window = {self.llm.metadata.context_window}")
 
@@ -706,7 +743,7 @@ class ChatbotAgents:
             try:
                 embedModel = HuggingFaceEmbedding(
                     model_name=self.embeddingModelName,
-                    max_length=self.embedDim,
+                    max_length=self.embedMaxLength,
                     trust_remote_code=True,
                     device='cuda',
                     model_kwargs=modelKwargs,
@@ -723,7 +760,7 @@ class ChatbotAgents:
 
         embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName,
-            max_length=self.embedDim,
+            max_length=self.embedMaxLength,
             trust_remote_code=True,
             device='cpu',
         )
@@ -748,17 +785,21 @@ class ChatbotAgents:
             query_engine=self.queryEngine.vectorQueryEngine,
             metadata=ToolMetadata(
                 name="vector_rag_query_engine",
-                description="ATTENTION: Always use this tool to answer questions, ignore your memory or any prior knowledge.",
+                description="Searches the paper being screened and returns the most relevant passages. "
+                            "Use it for every question: answers must rest on what it returns, not on prior knowledge.",
             ),
         )
         # llama-index >= 0.13 workflow ReActAgent: the system prompt is passed as
         # `system_prompt` (the old `prefix_messages` argument was silently ignored),
         # and max_iterations/memory are passed per call in `chatbot()`.
+        # early_stopping_method="generate": when the agent reaches max_iterations it makes one final
+        # call to write an answer from what it has gathered, instead of raising an error.
         self.vectorAgent = ReActAgent(
             tools=[self.vectorQueryEngineTool],
             llm=self.llm,
             system_prompt=systemMessage,
             verbose=True,
+            early_stopping_method="generate",
         )
     
     def appendIndex(self, vectorTopK, cutoffScore):
@@ -952,29 +993,99 @@ class ChatbotAgents:
             return "Resource cleanup failed!"
 
 ################################ Literature Screening Function ################################
-def cleanAndConvertJson(jsonText):
-    """
-    Cleans and converts a JSON string into a Python dictionary.
+# Keys of a stored answer, in the order the model is asked to produce them (evidence first,
+# then reasoning, then the answer). QuestionText is filled in from the questionnaire, not by the model.
+ANSWER_KEYS = ("Evidence", "Reasoning", "ShortAnswer")
+_KEY_ALIASES = {
+    "evidence": "Evidence", "quote": "Evidence", "quotes": "Evidence",
+    "reasoning": "Reasoning", "justification": "Reasoning", "explanation": "Reasoning", "rationale": "Reasoning",
+    "shortanswer": "ShortAnswer", "short_answer": "ShortAnswer", "answer": "ShortAnswer",
+    "questiontext": "QuestionText", "question": "QuestionText",
+}
 
-    Args:
-        jsonText (str): JSON text as a string, possibly with extra characters.
-
-    Returns:
-        dict: Parsed JSON data as a dictionary, or None if parsing fails.
-    """
-    cleanedText = jsonText.strip("'```json").strip('```')
-
-    cleanedText = cleanedText.replace("\\'", "'").replace('\\n', '\n')
-
-
-    cleanedText = '\n'.join([line.strip() for line in cleanedText.splitlines()])
+def _decodeJsonObjects(text):
+    """Yield every JSON value that can be decoded from `text`: the whole text first, then each '{...}' in it."""
+    decoder = json.JSONDecoder(strict=False)
+    stripped = text.strip()
     try:
-        return json.loads(cleanedText)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-        return cleanedText
+        yield decoder.decode(stripped)
+    except ValueError:
+        pass
+    for match in re.finditer(r'\{', text):
+        try:
+            value, _ = decoder.raw_decode(text, match.start())
+            yield value
+        except ValueError:
+            continue
+
+def _normalizeAnswer(value, depth=0):
+    """
+    Map a decoded JSON value onto {"Evidence", "Reasoning", "ShortAnswer"}; None if it has no answer.
+    Handles alias key names (answer/justification/evidence), a JSON string holding JSON, and an answer
+    nested one level deep (e.g., {"Q7": {...}} or {"ShortAnswer": {"ShortAnswer": ...}}).
+    """
+    if depth > 3:
+        return None
+    if isinstance(value, str):
+        inner = parseAnswer(value, _depth=depth + 1)
+        return inner
+    if not isinstance(value, dict):
+        return None
+    mapped = {}
+    for key, item in value.items():
+        canonical = _KEY_ALIASES.get(re.sub(r'[\s-]', '', str(key)).lower())
+        if canonical and canonical not in mapped:
+            mapped[canonical] = item
+    shortAnswer = mapped.get("ShortAnswer")
+    if isinstance(shortAnswer, dict):
+        nested = _normalizeAnswer(shortAnswer, depth + 1)
+        if nested is not None:
+            return nested
+        # A structured answer (e.g., {"technique": ..., "description": ...}): keep it as one string
+        mapped["ShortAnswer"] = "; ".join(f"{k}: {v}" for k, v in shortAnswer.items())
+    if "ShortAnswer" not in mapped:
+        # The answer may be wrapped one level deep, e.g. {"Q7": {...}} or {"result": {...}}
+        for item in value.values():
+            nested = _normalizeAnswer(item, depth + 1)
+            if nested is not None:
+                return nested
+        return None
+    answer = {key: mapped.get(key, "") for key in ANSWER_KEYS}
+    return answer
+
+def parseAnswer(text, _depth=0):
+    """
+    Parse the model's reply into {"Evidence", "Reasoning", "ShortAnswer"}; None if no answer can be found.
+
+    Accepts code fences, text before or after the JSON object, escaped newlines inside strings,
+    alias key names and an answer nested inside another object.
+    """
+    if text is None:
+        return None
+    text = str(text)
+    fenced = re.search(r'```(?:json)?\s*(.*?)```', text, re.S | re.I)
+    candidates = [fenced.group(1)] if fenced else []
+    candidates.append(text)
+    for candidate in candidates:
+        for value in _decodeJsonObjects(candidate):
+            answer = _normalizeAnswer(value, _depth)
+            if answer is not None:
+                return answer
+    return None
+
+def cleanAndConvertJson(jsonText):
+    """Backward-compatible wrapper: the parsed answer, or the original text if it cannot be parsed."""
+    parsed = parseAnswer(jsonText)
+    return parsed if parsed is not None else jsonText
 
 ################################ Save individual responses ################################
+def writeJsonAtomic(path, data):
+    """Write JSON to `path` via a temporary file, so a crash mid-write never leaves a truncated file."""
+    tmpPath = f"{path}.tmp"
+    with open(tmpPath, "w", encoding="utf-8") as outfile:
+        json.dump(data, outfile, indent=2, cls=DateTimeEncoder)
+    os.replace(tmpPath, path)
+
 def save_individual_result(paper_id, paper_data, output_dir, suffix=""):
     """
     Save individual paper results to a JSON file named after the paper_id.
@@ -983,13 +1094,36 @@ def save_individual_result(paper_id, paper_data, output_dir, suffix=""):
         paper_id (str): The ID/filename of the paper
         paper_data (dict): The paper's data including metadata and answers
         output_dir (str): Directory where individual results should be saved
-        suffix (str): Optional suffix before ".json" (e.g., ".partial" for an aborted paper)
+        suffix (str): Optional suffix before ".json" (e.g., ".partial" for an incomplete paper)
     """
     ensureFolderExists(output_dir)
     output_path = os.path.join(output_dir, f"{paper_id}{suffix}.json")
-    with open(output_path, "w", encoding="utf-8") as outfile:
-        json.dump(paper_data, outfile, indent=2, cls=DateTimeEncoder)
+    writeJsonAtomic(output_path, paper_data)
     print(f"Saved individual results for {paper_id} to {output_path}")
+
+def questionnaireHash(questions):
+    """A fingerprint of the questionnaire, stored with each result so that resume can tell versions apart."""
+    return hashlib.sha256(json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+def checkCompleteResult(data, questions, qHash):
+    """
+    Whether a saved result can be reused when resuming: (True, "") or (False, reason).
+    A result is reusable if it has a dict answer without an error for every question and, when it records
+    the questionnaire it was made with, that questionnaire is the current one. Results written before the
+    fingerprint was added are accepted if they are otherwise complete.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("answers"), dict):
+        return False, "it has no answers"
+    if data.get("questionnaire_sha256") and data["questionnaire_sha256"] != qHash:
+        return False, "it was made with a different questionnaire"
+    answers = data["answers"]
+    missing = [q for q in questions if q not in answers]
+    if missing:
+        return False, f"{len(missing)} answer(s) are missing"
+    broken = [q for q in questions if not isinstance(answers[q], dict) or answers[q].get("error")]
+    if broken:
+        return False, f"{len(broken)} answer(s) are unreadable or failed ({', '.join(broken[:5])})"
+    return True, ""
 
 
 # Minimum number of words a PDF's text layer must yield before it is screened
@@ -1008,134 +1142,173 @@ def countPdfWords(pdfPath):
 def process_single_paper(row, questions, configPath, input_pdf_folder):
     """
     Process a single paper:
-      - Instantiate a new screeningAgent (ChatbotAgents) to refresh memory.
+      - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty.
       - Reset the database and index store.
       - Upload and index the corresponding PDF.
-      - Iterate over the questions and query the indexed document.
-      - Return a dictionary mapping paper_id to its answers.
+      - Ask every question about the indexed document.
+      - Return {pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}.
+
+    The result is keyed by `pdf_filename` (earlier versions used the numeric `paper_id`).
+
+    Saving: a complete result goes to <outputDir>/individual/<pdf>.json. A paper with failed questions,
+    or one interrupted by an error, goes to <pdf>.partial.json instead, so a resumed run redoes it.
+    NonRetryableApiError, PipelineConfigError and KeyboardInterrupt are re-raised after saving.
     """
-    paper_id = row["pdf_filename"]  # Treat paper_id as a string instead of converting to int
+    paper_id = row["pdf_filename"]
     pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
     print(f"\nProcessing paper {paper_id} with PDF file: {pdf_filename}")
-    
-    # Instantiate a new screeningAgent for this paper.
-    screeningAgent = ChatbotAgents(configPath=configPath)
-    screeningAgent.selectDefaultAgent()
-    
-    # Reset the database and clear any uploaded files.
-    screeningAgent.clearFiles()
-    
-    # Build the full path to the PDF file.
-    pdf_path = os.path.join(input_pdf_folder, pdf_filename)
-    if not os.path.exists(pdf_path):
-        print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
+    qHash = questionnaireHash(questions)
 
-    # Refuse PDFs without a usable text layer (e.g., scanned pages): with nothing to retrieve,
-    # the LLM would answer from its own knowledge and the answers would look valid but be invented.
-    textWords = countPdfWords(pdf_path)
-    if textWords < MIN_PDF_WORDS:
-        msg = (f"PDF has no usable text layer ({textWords} words extracted; likely scanned). "
-               f"Run OCR on it first. Skipping paper {paper_id}.")
-        print(msg)
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": msg}}}
-
-    # Upload the PDF file.
-    upload_msg = screeningAgent.uploadFiles([pdf_path])
-    print(upload_msg)
-    
-    # Index the uploaded PDF using current vector retrieval settings.
-    vectorTopK = screeningAgent.config.retriever['vectortopk']
-    cutoffScore = screeningAgent.config.retriever['cutoffscore']
-    enableLogging = screeningAgent.config.general['enablelogging']
-
-    try:
-        screeningAgent.appendIndex(vectorTopK, cutoffScore)
-    except Exception as e:
-        print(f"Error indexing PDF: {e}")
-        screeningAgent.cleanup()
-        return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
-    
     config = Config(configPath)
     individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
 
-    # For each question, query the document.
-    paper_answers = {}
+    # Instantiate a new screeningAgent for this paper.
+    screeningAgent = ChatbotAgents(configPath=configPath)
     try:
-        _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id)
-    except Exception as e:
-        # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
-        # result), clean up, and re-raise so the caller can stop the run.
-        partial = {"metadata": row, "answers": paper_answers,
-                   "error": f"{type(e).__name__}: {e}",
-                   "answered": f"{len(paper_answers)}/{len(questions)}"}
-        save_individual_result(paper_id, partial, individual_output_dir, suffix=".partial")
+        screeningAgent.selectDefaultAgent()
+
+        # Reset the database and clear any uploaded files.
+        screeningAgent.clearFiles()
+
+        # Build the full path to the PDF file.
+        pdf_path = os.path.join(input_pdf_folder, pdf_filename)
+        if not os.path.exists(pdf_path):
+            print(f"PDF file {pdf_path} not found. Skipping paper {paper_id}.")
+            return {paper_id: {"metadata": row, "answers": {"error": f"PDF file {pdf_path} not found."}}}
+
+        # Refuse PDFs without a usable text layer (e.g., scanned pages): with nothing to retrieve,
+        # the LLM would answer from its own knowledge and the answers would look valid but be invented.
+        textWords = countPdfWords(pdf_path)
+        if textWords < MIN_PDF_WORDS:
+            msg = (f"PDF has no usable text layer ({textWords} words extracted; likely scanned). "
+                   f"Run OCR on it first. Skipping paper {paper_id}.")
+            print(msg)
+            return {paper_id: {"metadata": row, "answers": {"error": msg}}}
+
+        # Upload the PDF file.
+        upload_msg = screeningAgent.uploadFiles([pdf_path])
+        print(upload_msg)
+
+        # Index the uploaded PDF using current vector retrieval settings.
+        vectorTopK = screeningAgent.config.retriever['vectortopk']
+        cutoffScore = screeningAgent.config.retriever['cutoffscore']
+        enableLogging = screeningAgent.config.general['enablelogging']
+
+        try:
+            screeningAgent.appendIndex(vectorTopK, cutoffScore)
+        except Exception as e:
+            # Indexing calls the LLM (citation extraction). An error that retrying cannot fix
+            # (e.g., out of credit) would fail every following paper too, so stop the run.
+            status = getHttpStatus(e)
+            if status in NON_RETRYABLE_STATUS:
+                raise NonRetryableApiError(status, f"while indexing {paper_id}: {e}") from e
+            print(f"Error indexing PDF: {e}")
+            return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
+
+        paper_answers = {}
+        try:
+            failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id)
+        except BaseException as e:
+            # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
+            # result) and re-raise so the caller can stop the run.
+            partial = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers,
+                       "error": f"{type(e).__name__}: {e}",
+                       "answered": f"{len(paper_answers)}/{len(questions)}"}
+            save_individual_result(paper_id, partial, individual_output_dir, suffix=".partial")
+            raise
+
+        paper_result = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers}
+        stalePartial = os.path.join(individual_output_dir, f"{paper_id}.partial.json")
+        if failed:
+            paper_result["error"] = f"{failed} of {len(questions)} question(s) could not be answered"
+            print(f"{paper_id}: {paper_result['error']}; saved as a partial result so that a resumed run redoes it.")
+            save_individual_result(paper_id, paper_result, individual_output_dir, suffix=".partial")
+        else:
+            save_individual_result(paper_id, paper_result, individual_output_dir)
+            # A complete result supersedes any partial result from an earlier, aborted run
+            if os.path.exists(stalePartial):
+                os.remove(stalePartial)
+        return {paper_id: paper_result}
+    finally:
+        # Clean up by deleting the agent, collecting garbage, and emptying the GPU cache.
         screeningAgent.cleanup()
         del screeningAgent
         gc.collect()
         torch.cuda.empty_cache()
-        raise
 
-    # Create the result dictionary for this paper
-    paper_result = {paper_id: {"metadata": row, "answers": paper_answers}}
 
-    # Save individual result
-    save_individual_result(paper_id, paper_result[paper_id], individual_output_dir)
-    # A complete result supersedes any partial result from an earlier, aborted run
-    stalePartial = os.path.join(individual_output_dir, f"{paper_id}.partial.json")
-    if os.path.exists(stalePartial):
-        os.remove(stalePartial)
+ANSWER_INSTRUCTIONS = """
 
-    # Clean up by deleting the agent, collecting garbage, and emptying the GPU cache.
-    screeningAgent.cleanup()
-    del screeningAgent
-    gc.collect()
-    torch.cuda.empty_cache()
+Use the query engine tool to find the passages that answer this question; include the valid short answers in your search query.
+Then reply in English with a single JSON object with exactly these keys, in this order:
+    "Evidence": quote the exact sentences from the paper that support your answer. If there is no evidence, write "Not Applicable".
+    "Reasoning": explain briefly how the evidence leads to your answer.
+    "ShortAnswer": one of the valid short answers, or only the items explicitly stated in the paper.
+Write the evidence and reasoning before deciding on the short answer."""
 
-    return paper_result
+JSON_REMINDER = ("\n\nYour previous reply could not be read as the required JSON object. Reply with only one JSON object "
+                 "with the keys \"Evidence\", \"Reasoning\" and \"ShortAnswer\", in this order, and nothing else.")
 
+def _errorAnswer(q_text, message, raw=None):
+    """A placeholder answer recording why a question could not be answered."""
+    answer = {"QuestionText": q_text, **{key: "" for key in ANSWER_KEYS}, "error": message}
+    if raw is not None:
+        answer["raw"] = raw
+    return answer
 
 def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id=""):
-    """Ask every question for the current paper, filling `paper_answers` as answers arrive."""
+    """
+    Ask every question for the current paper, filling `paper_answers` as answers arrive.
+
+    A question whose reply cannot be parsed is asked once more with a reminder of the format. A question
+    that still fails, or whose API calls keep failing, gets an answer with an "error" key and the run moves
+    on to the next question. Only errors that retrying cannot fix (NonRetryableApiError) end the paper.
+    Returns the number of questions that ended with an error.
+    """
+    failed = 0
     for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
-        full_query = (
-            q_text +
-            """\n
-            ATTENTION: When answering questions, always use the query engine tool and do not rely on your internal memory.
-            Include all valid short answers in your query string when using the query engine tool.
-            Answer in English, in the following JSON format:
-                QuestionText: exactly repeat the question with short valid answers,
-                ShortAnswer: one of the valid short answers or extract only items explicitly stated in the document,
-                Reasoning: specify your reasoning or any additional notes for providing the answer,
-                Evidence: quote the exact sentences from the paper that support your answer and reasoning. If evidence is not available, say "Not Applicable"."""
-        )
-        answer = safeApiCall(
-            screeningAgent.chatbot,
-            enableLogging=enableLogging,
-            queryStr=full_query,
-            history=None
-        )
-
-        print(answer)
-
-        parsed_answer = cleanAndConvertJson(answer)
-        paper_answers[q_key] = parsed_answer
+        query = q_text + ANSWER_INSTRUCTIONS
+        parsed, raw, lastError = None, None, None
+        for attempt in range(2):
+            try:
+                raw = safeApiCall(
+                    screeningAgent.chatbot,
+                    enableLogging=enableLogging,
+                    queryStr=query if attempt == 0 else query + JSON_REMINDER,
+                    history=None
+                )
+            except NonRetryableApiError:
+                raise
+            except Exception as e:
+                lastError = f"{type(e).__name__}: {e}"
+                print(f"{q_key}: attempt {attempt + 1} failed ({lastError})")
+                continue
+            print(raw)
+            parsed = parseAnswer(raw)
+            if parsed is not None:
+                break
+            lastError = "the reply could not be parsed as the required JSON object"
+            print(f"{q_key}: {lastError}; asking again.")
+        if parsed is None:
+            failed += 1
+            paper_answers[q_key] = _errorAnswer(q_text, lastError, raw)
+        else:
+            paper_answers[q_key] = {"QuestionText": q_text, **parsed}
+    return failed
 
 
 def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
     """
-    For each paper in the metadata file (csv or xlsx):
-      - Process the paper in a separate subprocess.
-      - The per-paper process creates a fresh ChatbotAgents instance, resets the state,
-        uploads and indexes the PDF, then answers each question.
-      - Adds a 3-minute delay between processing each paper.
-    Finally, all results are saved in a single JSON file.
-    Additionally, logs the total processing time and average time per paper.
+    Screen every paper in the metadata file (csv or xlsx), one after another:
+      - each paper gets a fresh ChatbotAgents instance, which resets the database, uploads and indexes
+        the PDF, and answers every question (see process_single_paper);
+      - with `skip_existing = True` in [general], papers with a reusable result in
+        <outputDir>/individual/<pdf>.json are loaded instead of processed again (see checkCompleteResult);
+      - an unexpected error in one paper is recorded and the run moves on to the next paper;
+      - errors that affect every paper (NonRetryableApiError, PipelineConfigError) and Ctrl-C stop the run.
+    The combined results are written to `output_json_path` however the run ends.
+    Logs the total processing time and average time per paper.
     """
-    import time
-
     start_time = time.time()
 
     results = {}
@@ -1151,54 +1324,54 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         rows = df.to_dict('records')
     else:
         raise ValueError(f"Unsupported file type: {metadata_file_path}")
-    
-    # Optional resume: with `skip_existing = True` in [general], papers that already have a complete
-    # result in <outputDir>/individual/<paper>.json are not processed again; their saved results are
-    # loaded so the combined output still contains every paper. Partial results (*.partial.json) are redone.
+
     config = Config(configPath)
     skipExisting = bool(config.general.get('skip_existing', False))
     individualDir = os.path.join(config.dir_structure['outputdir'], 'individual')
+    qHash = questionnaireHash(questions)
 
     def writeCombined():
-        with open(output_json_path, "w", encoding="utf-8") as outfile:
-            json.dump(results, outfile, indent=2, cls=DateTimeEncoder)
+        writeJsonAtomic(output_json_path, results)
+        print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
 
-    # Process papers sequentially with delay instead of using multiprocessing
-    for i, row in enumerate(rows):
-        paperId = row["pdf_filename"]
-        existing = os.path.join(individualDir, f"{paperId}.json")
-        if skipExisting and os.path.exists(existing):
-            with open(existing, encoding="utf-8") as f:
-                results[paperId] = json.load(f)
-            print(f"\nSkipping paper {i+1}/{len(rows)} (already processed): {paperId}")
-            continue
+    try:
+        for i, row in enumerate(rows):
+            paperId = row["pdf_filename"]
+            existing = os.path.join(individualDir, f"{paperId}.json")
+            if skipExisting and os.path.exists(existing):
+                try:
+                    with open(existing, encoding="utf-8") as f:
+                        data = json.load(f)
+                    reusable, reason = checkCompleteResult(data, questions, qHash)
+                except (OSError, ValueError) as e:
+                    reusable, reason = False, f"it cannot be read ({e})"
+                if reusable:
+                    results[paperId] = data
+                    print(f"\nSkipping paper {i+1}/{len(rows)} (already processed): {paperId}")
+                    continue
+                print(f"\nThe saved result for {paperId} is not reusable ({reason}); processing the paper again.")
 
-        # Process the current paper; on an error that retrying cannot fix (e.g., out of API credit),
-        # save the results collected so far and stop instead of moving on to the next paper.
-        try:
-            result = process_single_paper(row, questions, configPath, input_pdf_folder)
-        except NonRetryableApiError as e:
-            writeCombined()
-            print(f"\nStopped at paper {i+1}/{len(rows)} ({paperId}): {e}\n"
-                  f"Results for {len(results)} completed paper(s) were saved to {output_json_path}; "
-                  f"answers for this paper so far are in {individualDir}. "
-                  f"Fix the cause and rerun with skip_existing = True to resume.")
-            raise
-        results.update(result)
+            try:
+                result = process_single_paper(row, questions, configPath, input_pdf_folder)
+            except (NonRetryableApiError, PipelineConfigError) as e:
+                print(f"\nStopped at paper {i+1}/{len(rows)} ({paperId}): {e}\n"
+                      f"Answers for this paper so far are in {individualDir}. "
+                      f"Fix the cause and rerun with skip_existing = True to resume.")
+                raise
+            except Exception as e:
+                # An unexpected problem with this paper only: record it and go on with the next paper.
+                logging.error(f"Paper {paperId} failed", exc_info=True)
+                print(f"\nPaper {i+1}/{len(rows)} ({paperId}) failed: {type(e).__name__}: {e}. "
+                      f"Continuing with the next paper.")
+                results[paperId] = {"metadata": row, "answers": {"error": f"{type(e).__name__}: {e}"}}
+                continue
+            results.update(result)
+            print(f"\nProcessing completed for paper {i+1}/{len(rows)}.")
+    finally:
+        # Also runs on Ctrl-C and on errors that stop the run, so the combined output is never stale.
+        writeCombined()
 
-        # Add delay after each paper except the last one
-        if i < len(rows) - 1:
-            delay_minutes = 0
-            delay_seconds = delay_minutes * 60
-            print(f"\nProcessing completed for paper {i+1}/{len(rows)}. Waiting {delay_minutes} minutes before next paper...")
-            time.sleep(delay_seconds)
-    
     print(f"Processing complete for {len(results)} papers.")
-
-    with open(output_json_path, "w", encoding="utf-8") as outfile:
-        json.dump(results, outfile, indent=2, cls=DateTimeEncoder)
-    print(f"\nScreening results saved to {output_json_path}")
-
     end_time = time.time()
     total_time = end_time - start_time
     avg_time_per_paper = total_time / len(rows) if rows else 0
@@ -1209,15 +1382,54 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
 
 
 ################################ Main Execution ################################
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG_PATH = './Config/ConfigLitScr.cfg'
+LEGACY_CONFIG_PATH = './Config/ConfigLitScrInUse.cfg'   # name used by earlier versions
+DEFAULT_QUESTIONS_PATH = os.path.join(SCRIPT_DIR, 'Questionnaires', 'questions_v1.json')
 
-import json
+def resolveConfigPath(cliPath=None):
+    """
+    The config file to use: --config, else the FTS_CONFIG environment variable, else
+    ./Config/ConfigLitScr.cfg, else the earlier default ./Config/ConfigLitScrInUse.cfg.
+    """
+    explicit = cliPath or os.environ.get('FTS_CONFIG')
+    if explicit:
+        if not os.path.isfile(explicit):
+            raise PipelineConfigError(f"Config file not found: {explicit}")
+        return explicit
+    if os.path.isfile(DEFAULT_CONFIG_PATH):
+        return DEFAULT_CONFIG_PATH
+    if os.path.isfile(LEGACY_CONFIG_PATH):
+        print(f"Using {LEGACY_CONFIG_PATH} (the earlier default name). "
+              f"Rename it to {DEFAULT_CONFIG_PATH} or pass --config to silence this message.")
+        return LEGACY_CONFIG_PATH
+    raise PipelineConfigError(
+        f"No config file found. Copy Config/ConfigLitScrTemp.cfg to {DEFAULT_CONFIG_PATH} and fill it in, "
+        f"or pass --config <path>.")
+
+def resolveQuestionsPath(config):
+    """`questions_file_path` from [dir-structure]; configs from before that key existed get questions_v1.json."""
+    path = config.dir_structure.get('questions_file_path')
+    if not path:
+        print(f"No questions_file_path in [dir-structure]; using {DEFAULT_QUESTIONS_PATH} "
+              f"(the questions earlier versions had built in).")
+        return DEFAULT_QUESTIONS_PATH
+    if not os.path.isfile(path):
+        raise PipelineConfigError(f"questions_file_path does not exist: {path}")
+    return path
+
+def parseArgs(argv=None):
+    parser = argparse.ArgumentParser(description="Answer a questionnaire for each paper in a metadata file.")
+    parser.add_argument('--config', help="Path to the config file (default: FTS_CONFIG, then "
+                                         f"{DEFAULT_CONFIG_PATH}, then {LEGACY_CONFIG_PATH}).")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    # Path to the config file
-    configPath = './Config/ConfigLitScr.cfg'
+    args = parseArgs()
+    configPath = resolveConfigPath(args.config)
     config = Config(configPath)
-    print("Loaded configuration:")
+    print(f"Loaded configuration from {configPath}:")
     print(config.neo4j)
     print(config.dir_structure)
     print(config.general)
@@ -1226,39 +1438,34 @@ if __name__ == "__main__":
 
     # Extract some default parameters
     appVersion = config.general['appversion']
-    huggingFaceToken = config.huggingface['api_key']
+    huggingFaceToken = getattr(config, 'huggingface', {}).get('api_key')
 
     # logging into huggingface
     # Never print the token itself; only whether one is set
     print(f"###### Hugging Face Token: {'set' if huggingFaceToken else 'not set'}")
-    try:
-        huggingface_hub.login(huggingFaceToken)
-        print("Successfully logged into huggingface!")
-    except Exception as e:
-        print(f"Error logging into huggingface: {e}")
+    if huggingFaceToken:
+        try:
+            huggingface_hub.login(huggingFaceToken)
+            print("Successfully logged into huggingface!")
+        except Exception as e:
+            print(f"Error logging into huggingface: {e}")
 
-    logger = setLogging(config)
+    logger = setLogging(config) or logging.getLogger(__name__)
 
     try:
-        # Optionally, set up Neo4j container if required
-        # buildNeo4jContainer(config)
-        
-        # Initialize the ChatbotAgents (which now functions as the screening engine)
         setChunkingMethod(config)
-        
-        # Define the metadata CSV file path and the input folder containing the PDFs.
-        # Adjust these paths as necessary.
-        metadata_csv_path = config.dir_structure['metadatafile']      # CSV file with paper metadata (must include "paper_id" column)
-        input_pdf_folder = config.dir_structure['input_pdf_folder']  # Folder where all paper PDFs are stored
-        output_json_path = config.dir_structure['outputfile']  # File to save all screening results
-        questions_file_path = config.dir_structure['questions_file_path']  # File to save all screening results
 
-            # Define the set of questions as a key-value dictionary.
+        metadata_csv_path = config.dir_structure['metadatafile']      # CSV file with paper metadata (must include "pdf_filename")
+        input_pdf_folder = config.dir_structure['input_pdf_folder']  # Folder where all paper PDFs are stored
+        output_json_path = config.dir_structure['outputfile']        # File to save all screening results
+        questions_file_path = resolveQuestionsPath(config)          # JSON file with the questions
+
         with open(questions_file_path, 'r', encoding='utf-8') as f:
             questions = json.load(f)
-        
+
         # Run the literature screening process.
         literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path)
-    
+
     except Exception as e:
         logger.error(f"Exception occurred:\n\n {e}", exc_info=True)
+        sys.exit(1)
