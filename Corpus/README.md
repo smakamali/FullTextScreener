@@ -13,6 +13,6 @@
 
 The PDFs are not part of this repository. `Config/metadata.csv` is a separate 30-paper list used for the earlier pipeline evaluations.
 
-**Papers with replaced PDFs:**
-- **121 (STHoles):** the extraction PDF is the Microsoft Research technical report MSR-TR-2001-36.
-- **55 (*Least expected cost query optimization: what can we expect?*):** the extraction PDF is an OCR'd copy, because the original's text layer is unreadable.
+**PDFs to replace for the re-extraction:** the original PDFs of two papers have unreadable text layers, so their current extractions are unreliable.
+- **121 (STHoles):** use the Microsoft Research technical report MSR-TR-2001-36.
+- **55 (*Least expected cost query optimization: what can we expect?*):** use an OCR'd copy of the original.
