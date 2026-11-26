@@ -1105,6 +1105,42 @@ def questionnaireHash(questions):
     """A fingerprint of the questionnaire, stored with each result so that resume can tell versions apart."""
     return hashlib.sha256(json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
+# Bump whenever the PDF reader or the chunking code changes, so that every paper is indexed again.
+READER_VERSION = "1"
+
+def computePaperKey(pdfPath, config):
+    """
+    The key that identifies a paper's chunks in the persistent index: a fingerprint of the PDF's bytes and of
+    every setting that changes how it is chunked or embedded. The file name is not part of it, so a renamed
+    copy reuses the index; a replaced PDF or changed settings get a new key, and so a fresh index.
+    """
+    nodeParser = config.nodeparser
+    service = config.llm_model['service']
+    settings = {
+        "nodeParserType": nodeParser.get('nodeparsertype'),
+        "chunk_size": nodeParser.get('chunk_size'),
+        "chunk_overlap": nodeParser.get('chunk_overlap'),
+        "bufferSize": nodeParser.get('buffersize'),
+        "breakpointPercentileThreshold": nodeParser.get('breakpointpercentilethreshold'),
+        "embed_model": config.dict[service].get('embed_model'),
+        "reader_version": READER_VERSION,
+    }
+    digest = hashlib.sha256()
+    with open(pdfPath, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    digest.update(json.dumps(settings, sort_keys=True).encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+def tagDocuments(documents, paperKey):
+    """Store `paperKey` on each document (its chunks inherit it), without changing what is embedded or sent to the LLM."""
+    for doc in documents:
+        doc.metadata['paper_key'] = paperKey
+        for keys in (doc.excluded_embed_metadata_keys, doc.excluded_llm_metadata_keys):
+            if 'paper_key' not in keys:
+                keys.append('paper_key')
+    return documents
+
 def checkCompleteResult(data, questions, qHash):
     """
     Whether a saved result can be reused when resuming: (True, "") or (False, reason).

@@ -363,5 +363,56 @@ class AtomicWriteTests(unittest.TestCase):
                 self.assertEqual(json.load(f), {"a": 1})
 
 
+def fakeIndexConfig(chunk_size=1000, embed_model="Alibaba-NLP/gte-Qwen2-7B-instruct"):
+    return types.SimpleNamespace(
+        nodeparser={"nodeparsertype": "static", "chunk_size": chunk_size, "chunk_overlap": 50,
+                    "buffersize": 1, "breakpointpercentilethreshold": 95},
+        llm_model={"service": "openrouter"},
+        dict={"openrouter": {"embed_model": embed_model}},
+    )
+
+
+class PaperKeyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def pdf(self, name, data=b"%PDF-1.4 paper bytes"):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_key_is_16_hex(self):
+        key = fts.computePaperKey(self.pdf("a.pdf"), fakeIndexConfig())
+        self.assertRegex(key, r"^[0-9a-f]{16}$")
+
+    def test_key_ignores_file_name(self):
+        cfg = fakeIndexConfig()
+        self.assertEqual(fts.computePaperKey(self.pdf("a.pdf"), cfg), fts.computePaperKey(self.pdf("b.pdf"), cfg))
+
+    def test_key_changes_with_bytes(self):
+        cfg = fakeIndexConfig()
+        self.assertNotEqual(fts.computePaperKey(self.pdf("a.pdf", b"one"), cfg),
+                            fts.computePaperKey(self.pdf("b.pdf", b"onf"), cfg))
+
+    def test_key_changes_with_settings(self):
+        path = self.pdf("a.pdf")
+        base = fts.computePaperKey(path, fakeIndexConfig())
+        self.assertNotEqual(base, fts.computePaperKey(path, fakeIndexConfig(chunk_size=800)))
+        self.assertNotEqual(base, fts.computePaperKey(path, fakeIndexConfig(embed_model="other/model")))
+        with mock.patch.object(fts, "READER_VERSION", "2"):
+            self.assertNotEqual(base, fts.computePaperKey(path, fakeIndexConfig()))
+
+    def test_tag_documents_excluded_from_embedding_and_llm(self):
+        from llama_index.core import Document
+        d = Document(text="t", metadata={"file_name": "a.pdf"})
+        fts.tagDocuments([d], "abc123")
+        self.assertEqual(d.metadata["paper_key"], "abc123")
+        self.assertNotIn("abc123", d.get_content(metadata_mode="embed"))
+        self.assertNotIn("abc123", d.get_content(metadata_mode="llm"))
+        self.assertIn("a.pdf", d.get_content(metadata_mode="embed"))
+
+
 if __name__ == "__main__":
     unittest.main()
