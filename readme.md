@@ -41,8 +41,9 @@ cd ChatWithDocs
 
 2. Install dependencies:
 ```bash
-pip install -r requirements_wv.txt
+pip install -r Requirements/requirements_nv.txt
 ```
+`Requirements/requirements_wv.txt` pins the exact versions that ran the survey extractions (Python 3.11).
 
 3. Create the configuration file:
 ```bash
@@ -50,8 +51,10 @@ cp ./Config/ConfigLitScrTemp.cfg ./Config/ConfigLitScr.cfg
 ```
 
 4. Edit the configuration file:
-   - Add your HuggingFace and Mistral API keys
+   - Choose the `service` (`openrouter`, `mistral` or `huggingface`) and add its API key, plus a HuggingFace token for the embedding model
    - Adjust other settings as needed
+
+   Every `Config/*.cfg` except the `*Temp.cfg` templates is gitignored, because live configs hold API keys. Never commit them.
 
 
 ## Setting up Neo4j Docker container
@@ -78,6 +81,8 @@ fulltext-screener/
 ├── Config/
 │   ├── ConfigLitScrTemp.cfg
 │   └── ConfigLitScr.cfg
+├── Questionnaires/
+│   └── (questionnaire JSON files)
 ├── Modules/
 │   ├── Readers/
 │   │   └── (Custom reader modules)
@@ -94,7 +99,9 @@ fulltext-screener/
 ├── logs/
 │   └── (Log files)
 ├── FullTextScreener.py
-└── requirements_wv.txt
+└── Requirements/
+    ├── requirements_nv.txt
+    └── requirements_wv.txt
 ```
 
 ## Configuration
@@ -104,16 +111,17 @@ The `ConfigLitScr.cfg` file contains all the necessary configuration parameters.
 ### General Settings
 ```
 [general]
-appVersion = 0.8.0
+appVersion = 0.9.1
 forceReindex = False
 enableLogging = True
 showProgress = True
+skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 ```
 
 ### LLM Model Settings
 ```
 [llm-model]
-service = huggingface # alternatively can be set to `mistral`
+service = openrouter # or `mistral` or `huggingface`
 max_new_tokens = 1024
 temperature = 0.0
 do_sample = False
@@ -127,6 +135,19 @@ model_name = Qwen/Qwen2.5-14B-Instruct-1M
 embed_model = Alibaba-NLP/gte-multilingual-base
 embedDim = 768
 ```
+
+### OpenRouter Settings
+```
+[openrouter]
+api_key = YOUR_API_KEY_HERE
+model_name = mistralai/mistral-large-2512
+embed_model = Alibaba-NLP/gte-Qwen2-7B-instruct
+embedDim = 3584
+# context_window = 262144     # optional; otherwise read from OpenRouter's model listing
+# embed_device = cuda         # optional: cpu (default), cuda or auto
+# embed_quantization = 8bit   # optional, GPU only: none, fp16, 8bit or 4bit
+```
+If the context window cannot be looked up and `context_window` is not set, the run stops with an error instead of falling back to llama-index's 3,900-token default, which would truncate the retrieved context.
 
 ### Mistral Settings
 ```
@@ -155,6 +176,7 @@ input_pdf_folder = ./input/pdfs
 metadataFile = ./input/metadata.csv
 outputDir = ./output
 outputFile = ./output/output.json
+questions_file_path = ./Questionnaires/questions_v2.1.json
 logDir = ./logs/
 logFile = processing_log.txt
 dataPath = ../neo4j_vol1/data
@@ -165,7 +187,8 @@ pluginsPath = ../neo4j_vol1/plugins
 ```
 [agent]
 enable_agent = True
-max_iterations = 10 #sets number of times to try to answer the question
+max_iterations = 10          # reasoning steps per question; at the limit the agent writes a final answer
+memory_token_limit = 100000  # per-paper memory; capped to fit the model's context window
 ```
 
 ### Retriever Settings
@@ -204,29 +227,36 @@ paper002,paper002.pdf,Another Paper Title,Jane Smith,2024
 ```
 ## Customizing Questions
 
-The questions are defined in the `questions` dictionary in the `FullTextScreener.py` file. You can modify or add questions by editing this dictionary.
+The questions are read from the JSON file given by `questions_file_path` in `[dir-structure]`: an object mapping question ids (`Q1`, `Q2`, ...) to question texts. `Questionnaires/` holds the survey's versions (see `Questionnaires/README.md`). If the key is missing, `Questionnaires/questions_v1.json` is used.
 
 ## Usage
 
 Run the script with Python:
 
 ```bash
-python FullTextScreener.py
+python FullTextScreener.py                      # uses ./Config/ConfigLitScr.cfg
+python FullTextScreener.py --config path/to.cfg # or set the FTS_CONFIG environment variable
 ```
+Without `--config` or `FTS_CONFIG`, the script uses `./Config/ConfigLitScr.cfg`, or the earlier default `./Config/ConfigLitScrInUse.cfg` if only that exists.
 
 The script will:
 1. Load configuration settings
 2. Process each paper in the metadata CSV file
 3. Generate answers to the predefined questions
-4. Save the results in a JSON file
+4. Save each paper's result in `<outputDir>/individual/<pdf_filename>.json`, and all results in `outputFile`
+
+**Failures and resuming:**
+- **A question that fails:** a reply that cannot be parsed is asked once more. If the question still fails, or its API calls keep failing, it is recorded with an `error` key and the run continues. The paper is then saved as `<pdf_filename>.partial.json`.
+- **Errors that stop the run:** errors retrying cannot fix (out of credit, invalid key, unknown model) and setup errors stop the run. `outputFile` is written however the run ends, including on Ctrl-C.
+- **Resuming:** rerun with `skip_existing = True`. Complete results made with the same questionnaire are reused; partial, unreadable or outdated results are redone.
 
 ## Output Format
 
-The tool generates a JSON file with the following structure:
+The tool generates a JSON file with the following structure. Results are keyed by `pdf_filename` (versions before 0.9 used the numeric `paper_id`). `QuestionText` is copied from the questionnaire. The model writes `Evidence` and `Reasoning` before `ShortAnswer`, so that it reasons before answering.
 
 ```json
 {
-  "paper_id": {
+  "paper001.pdf": {
     "metadata": {
       "paper_id": "paper001",
       "pdf_filename": "paper001.pdf",
@@ -234,24 +264,32 @@ The tool generates a JSON file with the following structure:
       "authors": "John Doe",
       "year": "2023"
     },
+    "questionnaire_sha256": "3f1c…",
     "answers": {
       "Q1": {
         "QuestionText": "Does the study provide any new definitions for robustness?",
-        "ShortAnswer": "Yes",
+        "Evidence": "On page 3, the authors state: 'We define robustness as...'",
         "Reasoning": "The paper introduces a novel definition of robustness in the context of query optimization.",
-        "Evidence": "On page 3, the authors state: 'We define robustness as...'"
+        "ShortAnswer": "Yes"
       },
       "Q2": {
         "QuestionText": "How does the study define robustness or risk (implicitly or explicitly)?",
-        "ShortAnswer": "A query optimizer is robust if it produces consistent execution plans for similar queries",
+        "Evidence": "The definition appears on page 4: 'A query optimizer is considered robust if...'",
         "Reasoning": "The authors explicitly define robustness in terms of plan stability.",
-        "Evidence": "The definition appears on page 4: 'A query optimizer is considered robust if...'"
+        "ShortAnswer": "A query optimizer is robust if it produces consistent execution plans for similar queries"
       }
     }
   }
 }
 ```
 
+
+## Tests
+
+Offline tests cover answer parsing, retries, the context-window lookup, the memory cap, resuming and config resolution. They need no API key, Neo4j or GPU:
+```bash
+python -m unittest discover -s tests -v
+```
 
 ## Troubleshooting
 
