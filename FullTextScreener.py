@@ -1231,7 +1231,50 @@ def parseAnswer(text, _depth=0):
             answer = _normalizeAnswer(value, _depth)
             if answer is not None:
                 return answer
+    # Last resort: a value written as several quoted strings ("a"; "b" or "a", "b"), which is not JSON
+    for candidate in candidates:
+        repaired = _joinSplitStrings(candidate)
+        if repaired == candidate:
+            continue
+        for value in _decodeJsonObjects(repaired):
+            answer = _normalizeAnswer(value, _depth)
+            if answer is not None:
+                return answer
     return None
+
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"', re.S)
+
+def _joinSplitStrings(text):
+    """
+    Join a value the model wrote as several quoted strings separated by ';' or ',' (e.g. "Evidence": "a"; "b")
+    into one string ("a; b"). A string counts as a continuation only if it follows such a value and is not a
+    key (not followed by ':'). Strings in arrays and valid key/value pairs are left as they are.
+    """
+    tokens = list(_JSON_STRING.finditer(text))
+    out, last, i = [], 0, 0
+    while i < len(tokens):
+        token = tokens[i]
+        isValue = text[:token.start()].rstrip().endswith(':')
+        out.append(text[last:token.start()])
+        end, j, parts = token.end(), i + 1, [token.group()]
+        if isValue:
+            while j < len(tokens):
+                gap = text[end:tokens[j].start()].strip()
+                isKey = text[tokens[j].end():].lstrip().startswith(':')
+                if gap not in (';', ',') or isKey:
+                    break
+                parts.append(tokens[j].group())
+                end, j = tokens[j].end(), j + 1
+        if len(parts) > 1:
+            try:
+                out.append(json.dumps("; ".join(json.loads(part, strict=False) for part in parts), ensure_ascii=False))
+            except ValueError:
+                out.append(text[token.start():end])
+        else:
+            out.append(token.group())
+        last, i = end, j
+    out.append(text[last:])
+    return "".join(out)
 
 def cleanAndConvertJson(jsonText):
     """Backward-compatible wrapper: the parsed answer, or the original text if it cannot be parsed."""

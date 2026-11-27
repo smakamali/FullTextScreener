@@ -948,5 +948,42 @@ class EventLoopAndConfigTests(unittest.TestCase):
             self.embedCheck(+1)
 
 
+class SplitStringRepairTests(unittest.TestCase):
+    """Replies whose Evidence is several quoted strings separated by ';' or ',' (invalid JSON)."""
+    # Shortened from the real reply for paper 182 (live run 2026-11-26), which failed to parse twice
+    REAL = ('```\n{\n    "Evidence": "This accelerates the training process and promotes the generation of robust query plans."; '
+            '"Without applying logarithmic transformation, the loss value exhibits significant fluctuations... '
+            'results in less robust query plans."; "Such discrepancies pose challenges in generating robust and efficient query plans.",\n'
+            '    "Reasoning": "The paper does not explicitly define robustness as \'robustness means X\'.",\n'
+            '    "ShortAnswer": "No Definitions Provided"\n}\n```')
+
+    def test_semicolon_separated_evidence(self):
+        parsed = fts.parseAnswer(self.REAL)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["ShortAnswer"], "No Definitions Provided")
+        self.assertIn("robust query plans.", parsed["Evidence"])
+        self.assertIn("Such discrepancies pose challenges", parsed["Evidence"])
+        self.assertIn("robustness means X", parsed["Reasoning"])
+
+    def test_comma_separated_evidence(self):
+        text = '{"Evidence": "first quote", "second quote", "Reasoning": "r", "ShortAnswer": "Yes"}'
+        parsed = fts.parseAnswer(text)
+        self.assertEqual(parsed["ShortAnswer"], "Yes")
+        self.assertIn("first quote", parsed["Evidence"])
+        self.assertIn("second quote", parsed["Evidence"])
+        self.assertEqual(parsed["Reasoning"], "r")
+
+    def test_list_answers_and_keys_untouched(self):
+        text = '{"Evidence": "e", "Reasoning": "r", "ShortAnswer": ["TPC-H", "JOB"]}'
+        self.assertEqual(fts.parseAnswer(text)["ShortAnswer"], ["TPC-H", "JOB"])
+        self.assertEqual(fts._joinSplitStrings('{"a": "x", "b": "y"}'), '{"a": "x", "b": "y"}')
+
+    def test_quotes_inside_merged_strings_survive(self):
+        text = r'{"Evidence": "he said \"robust\""; "second", "Reasoning": "r", "ShortAnswer": "No"}'
+        parsed = fts.parseAnswer(text)
+        self.assertIn('he said "robust"', parsed["Evidence"])
+        self.assertIn("second", parsed["Evidence"])
+
+
 if __name__ == "__main__":
     unittest.main()
