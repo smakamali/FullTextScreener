@@ -117,7 +117,7 @@ enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
-# workers = 1           # papers processed at once, 1-10 (see "Parallel papers" below)
+workers = 10           # papers processed at once, 1-10 (see "Parallel papers" below)
 # api_max_attempts = 15 # tries per failed API call (default 15, worst case about 9 min of waiting per call)
 ```
 
@@ -265,6 +265,7 @@ The script will:
 - **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
 **Parallel papers (`workers` in `[general]`, default 1):**
+- **Recommended: `workers = 10`** (the template's setting). Measured on 2026-11-27 with 3 questions per paper on the GPU: 1 worker about 23 s per question; 3 workers 22 s; 10 workers 38 s per question but 10 at once, with no failed questions. About half the API replies at 10 workers were 429s (Mistral's shared pool on OpenRouter); 429s are not billed, and the reruns they caused added about 6-9 % requests. Projected for 168 papers with 25 questions: about 27-32 h with 1 worker, 8.5-12 h with 3, 5-8 h with 10.
 - **What it does:** `workers = 2` to `10` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 10 stop the run with a config error.
 - **Shared models:** the LLM client and the embedding model are loaded once and shared by all workers, so a local embedding model uses one GPU and one copy of its weights; embedding calls take turns.
 - **Requires `persistent_index = True`:** with `persistent_index = False` every paper wipes the database the others are searching, so `workers > 1` is refused.
