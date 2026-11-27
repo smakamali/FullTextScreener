@@ -117,14 +117,15 @@ enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
-workers = 10           # papers processed at once, 1-10 (see "Parallel papers" below)
+workers = 5            # papers processed at once, 1-10 (see "Parallel papers" below)
 # api_max_attempts = 15 # tries per failed API call (default 15, worst case about 9 min of waiting per call)
 ```
 
 ### LLM Model Settings
 ```
 [llm-model]
-service = openrouter # or `mistral` or `huggingface`
+service = openrouter # or `mistral` or `huggingface` (local; use it for confidential PDFs: with openrouter, questions
+                     # and retrieved passages are sent to OpenRouter and the model provider)
 max_new_tokens = 1024
 temperature = 0.0
 do_sample = False
@@ -147,8 +148,8 @@ model_name = mistralai/mistral-large-2512
 embed_model = Alibaba-NLP/gte-Qwen2-7B-instruct
 embedDim = 3584
 # context_window = 262144     # optional; otherwise read from OpenRouter's model listing
-# embed_device = cuda         # optional: cpu (default), cuda or auto
-# embed_quantization = 8bit   # optional, GPU only: none, fp16, 8bit or 4bit
+embed_device = cuda           # cpu (default if unset), cuda or auto; falls back to the CPU without a GPU
+embed_quantization = 8bit     # GPU only: none, fp16, 8bit or 4bit
 ```
 The embedding precision (`cpu-fp32` by default, or e.g. `cuda-8bit`) is part of each paper's index key: a CPU fp32 run reuses existing indexes, any other precision builds a separate index.
 
@@ -181,7 +182,7 @@ input_pdf_folder = ./input/pdfs
 metadataFile = ./input/metadata.csv
 outputDir = ./output
 outputFile = ./output/output.json
-questions_file_path = ./Questionnaires/questions_v2.1.json
+questions_file_path = ./Questionnaires/questions_v3.1.json
 logDir = ./logs/
 logFile = processing_log.txt
 dataPath = ../neo4j_vol1/data
@@ -265,7 +266,7 @@ The script will:
 - **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
 **Parallel papers (`workers` in `[general]`, default 1):**
-- **Recommended: `workers = 10`** (the template's setting). Measured on 2026-11-27 with 3 questions per paper on the GPU: 1 worker about 23 s per question; 3 workers 22 s; 10 workers 38 s per question but 10 at once, with no failed questions. About half the API replies at 10 workers were 429s (Mistral's shared pool on OpenRouter); 429s are not billed, and the reruns they caused added about 6-9 % requests. Projected for 168 papers with 25 questions: about 27-32 h with 1 worker, 8.5-12 h with 3, 5-8 h with 10.
+- **Template: `workers = 5`**, a middle setting; the survey's own runs use `workers = 10`. Measured on 2026-11-27 with 3 questions per paper on the GPU: 1 worker about 23 s per question; 3 workers 22 s; 10 workers 38 s per question but 10 at once, with no failed questions. About half the API replies at 10 workers were 429s (Mistral's shared pool on OpenRouter); 429s are not billed, and the reruns they caused added about 6-9 % requests. Projected for 168 papers with 25 questions: about 27-32 h with 1 worker, 8.5-12 h with 3, 5-8 h with 10.
 - **What it does:** `workers = 2` to `10` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 10 stop the run with a config error.
 - **Shared models:** the LLM client and the embedding model are loaded once and shared by all workers, so a local embedding model uses one GPU and one copy of its weights; embedding calls take turns.
 - **Requires `persistent_index = True`:** with `persistent_index = False` every paper wipes the database the others are searching, so `workers > 1` is refused.
