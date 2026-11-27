@@ -313,7 +313,7 @@ Here are the categories of the imports:
     - **Purpose:** Processes every paper in the metadata file, one after another, or `workers` at a time.
     - **How It Works:**
         - Reads metadata from a CSV or Excel file.
-        - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`) and redoes partial, unreadable or outdated ones.
+        - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`: the result's `questionnaire_sha256` must match) and redoes results without a fingerprint (written before 0.9.1) and partial, unreadable or outdated ones.
         - Records an unexpected error in one paper and moves on; stops the run on `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C.
         - Always writes the combined results to `output_json_path`, however the run ends, and logs the processing time.
         - **`workers > 1`** (`readWorkers`: 1 to 10, and only with `persistent_index = True`; otherwise `PipelineConfigError`): `_screenInParallel` loads the models once, serializes the embedding model's calls with a lock (`serializeEmbedding`), starts one event-loop thread (`LoopThread`) and submits the papers to a `ThreadPoolExecutor`. Results are collected in the main thread as papers finish. On `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C it sets the stop event, cancels the papers not yet started, waits for the running ones to stop at their next question (`RunStopped`, not reported as an error) and re-raises the first run-wide error, or `KeyboardInterrupt`.
