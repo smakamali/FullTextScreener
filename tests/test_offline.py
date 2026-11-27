@@ -262,14 +262,31 @@ class ResumeTests(unittest.TestCase):
         with open(os.path.join(self.individual, name), "w", encoding="utf-8") as f:
             f.write(content if isinstance(content, str) else json.dumps(content))
 
-    def fakeProcess(self, row, questions, configPath, folder):
+    def fakeProcess(self, row, questions, configPath, folder, models=None, reindex=False):
         self.processed.append(row["pdf_filename"])
+        self.modelsSeen.append(models)
         return {row["pdf_filename"]: self.complete(questionnaire_sha256=self.hash)}
 
     def run_screening(self, side_effect=None):
-        self.processed = []
-        with mock.patch.object(fts, "process_single_paper", side_effect=side_effect or self.fakeProcess):
+        self.processed, self.modelsSeen = [], []
+        self.models = ("llm", "embed")
+        with mock.patch.object(fts, "process_single_paper", side_effect=side_effect or self.fakeProcess),              mock.patch.object(fts, "loadModels", return_value=self.models) as self.loadModels,              mock.patch.object(fts, "freeModels") as self.freeModels:
             fts.literature_screening(self.metadata, self.QUESTIONS, self.config, "pdfs", self.output)
+
+    def test_models_loaded_once_and_freed(self):
+        self.run_screening()
+        self.assertEqual(self.processed, ["a.pdf", "b.pdf"])
+        self.loadModels.assert_called_once_with(self.config)
+        self.assertEqual(self.modelsSeen, [self.models, self.models])
+        self.freeModels.assert_called_once_with(*self.models)
+
+    def test_no_models_loaded_when_all_skipped(self):
+        for name in ("a.pdf", "b.pdf"):
+            self.writeIndividual(f"{name}.json", self.complete(questionnaire_sha256=self.hash))
+        self.run_screening()
+        self.assertEqual(self.processed, [])
+        self.loadModels.assert_not_called()
+        self.freeModels.assert_not_called()
 
     def test_check_complete_result(self):
         ok, _ = fts.checkCompleteResult(self.complete(questionnaire_sha256=self.hash), self.QUESTIONS, self.hash)
@@ -305,25 +322,25 @@ class ResumeTests(unittest.TestCase):
         self.assertIn("a.pdf", self.processed)
 
     def test_combined_output_written_when_run_stops(self):
-        def stopOnSecond(row, *args):
+        def stopOnSecond(row, *args, **kwargs):
             if row["pdf_filename"] == "b.pdf":
                 raise fts.NonRetryableApiError(402, "out of credit")
-            return self.fakeProcess(row, *args)
+            return self.fakeProcess(row, *args, **kwargs)
         with self.assertRaises(fts.NonRetryableApiError):
             self.run_screening(side_effect=stopOnSecond)
         with open(self.output, encoding="utf-8") as f:
             self.assertEqual(list(json.load(f)), ["a.pdf"])
 
     def test_unexpected_paper_error_does_not_stop_run(self):
-        def failFirst(row, *args):
+        def failFirst(row, *args, **kwargs):
             if row["pdf_filename"] == "a.pdf":
                 raise RuntimeError("unexpected")
-            return self.fakeProcess(row, *args)
+            return self.fakeProcess(row, *args, **kwargs)
         self.run_screening(side_effect=failFirst)
         with open(self.output, encoding="utf-8") as f:
             data = json.load(f)
         self.assertIn("error", data["a.pdf"]["answers"])
-        self.assertIn("b.pdf", data)
+        self.assertNotIn("error", data["b.pdf"]["answers"])
 
 
 class ConfigResolutionTests(unittest.TestCase):
@@ -588,6 +605,57 @@ class LeakAnswerLoopTests(unittest.TestCase):
         self.assertEqual(answers["Q1"]["ShortAnswer"], "")
         self.assertEqual(answers["Q2"]["ShortAnswer"], "Yes")
         self.assertEqual(len(agent.queries), 2)   # not asked again
+
+
+TEMPLATE_CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Config", "ConfigLitScrTemp.cfg")
+
+
+class SentinelModel:
+    """Stands in for a loaded model; records whether cleanup tried to free it."""
+    def __init__(self):
+        self.metadata = types.SimpleNamespace(context_window=262144)
+        self._model = types.SimpleNamespace(cpu=lambda: setattr(self, "movedToCpu", True))
+        self.movedToCpu = False
+
+
+@mock.patch.object(fts, "Settings")
+@mock.patch.object(fts.ChatbotAgents, "selectDefaultAgent")
+@mock.patch.object(fts.ChatbotAgents, "updateQueryEngine")
+@mock.patch.object(fts.ChatbotAgents, "getOpenRouterLlmAndEmbedding")
+@mock.patch.object(fts.ChatbotAgents, "getMistralLlmAndEmbedding")
+@mock.patch.object(fts.ChatbotAgents, "getHuggingFaceLlmAndEmbedding")
+class SharedModelTests(unittest.TestCase):
+    def test_shared_models_not_reloaded(self, hf, mistral, openrouter, *_):
+        llm, embed = SentinelModel(), SentinelModel()
+        agent = fts.ChatbotAgents(configPath=TEMPLATE_CONFIG, models=(llm, embed))
+        for loader in (hf, mistral, openrouter):
+            loader.assert_not_called()
+        self.assertIs(agent.llm, llm)
+        self.assertIs(agent.embedModel, embed)
+        self.assertFalse(agent.ownsModels)
+
+    def test_without_models_loads_as_before(self, hf, mistral, openrouter, *_):
+        def load(agentSelf):
+            agentSelf.llm, agentSelf.embedModel = SentinelModel(), SentinelModel()
+        hf.side_effect = lambda: load(agentRef[0])
+        agentRef = [None]
+        original = fts.ChatbotAgents._loadModels
+        def capture(agentSelf):
+            agentRef[0] = agentSelf
+            return original(agentSelf)
+        with mock.patch.object(fts.ChatbotAgents, "_loadModels", capture):
+            agent = fts.ChatbotAgents(configPath=TEMPLATE_CONFIG)
+        hf.assert_called_once()   # the template's service is huggingface
+        self.assertTrue(agent.ownsModels)
+
+    def test_cleanup_keeps_shared_models(self, *_):
+        llm, embed = SentinelModel(), SentinelModel()
+        agent = fts.ChatbotAgents(configPath=TEMPLATE_CONFIG, models=(llm, embed))
+        with mock.patch.object(fts.ChatbotAgents, "clearFiles"):
+            agent.cleanup()
+        self.assertTrue(hasattr(llm, "_model"))
+        self.assertTrue(hasattr(embed, "_model"))
+        self.assertFalse(llm.movedToCpu or embed.movedToCpu)
 
 
 if __name__ == "__main__":

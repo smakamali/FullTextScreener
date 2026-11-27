@@ -626,6 +626,44 @@ Query:
         return self.vectorQueryEngine, rm
 
 
+################################ Model Loading ################################
+def loadModels(configPath):
+    """Load the configured LLM and embedding model once, to share across the papers of a run: (llm, embedModel)."""
+    loader = object.__new__(ChatbotAgents)
+    loader.configPath = configPath
+    loader.config = Config(configPath)
+    loader.getConfigs()
+    loader.getModelConfigs(configPath)
+    loader._loadModels()
+    return loader.llm, loader.embedModel
+
+def freeModels(llm, embedModel):
+    """Release an LLM and an embedding model (and their GPU memory, for HuggingFace models)."""
+    if llm is not None:
+        if hasattr(llm, '_model'):
+            if hasattr(llm._model, 'cpu'):
+                llm._model.cpu()
+            del llm._model
+        if getattr(llm, '_tokenizer', None) is not None:
+            try:
+                delattr(llm, '_tokenizer')
+            except Exception:
+                pass
+    if embedModel is not None:
+        if hasattr(embedModel, 'client'):
+            del embedModel.client
+        if hasattr(embedModel, '_model'):
+            if hasattr(embedModel._model, 'cpu'):
+                # 8-bit/4-bit (bitsandbytes) models cannot be moved; that must not skip the rest
+                try:
+                    embedModel._model.cpu()
+                except Exception:
+                    pass
+            del embedModel._model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 ################################ Chatbot Agents ################################
 
 class ChatbotAgents:
@@ -634,21 +672,24 @@ class ChatbotAgents:
     This version supports only vector-based retrieval.
     """
     successMsg = 'Chatbot Agents updated successfully!'
-    def __init__(self, configPath) -> None:
-        self.availableServices = ['huggingface', 'mistral',"openrouter"]
+    availableServices = ['huggingface', 'mistral', 'openrouter']
+
+    def __init__(self, configPath, models=None) -> None:
+        """
+        `models`: an (llm, embedModel) pair from loadModels(), shared by every paper of a run, so the models are
+        loaded once instead of once per paper. Without it, this instance loads (and on cleanup frees) its own.
+        """
         self.configPath = configPath
         self.config = Config(configPath)
+        self.persistent = False   # set by process_single_paper; True keeps the database on cleanup
         self.getConfigs()
         self.getModelConfigs(self.configPath)
-        if self.service == self.availableServices[0]:  # huggingface
-            self.getHuggingFaceLlmAndEmbedding()
-        elif self.service == self.availableServices[1]:  # mistral
-            self.getMistralLlmAndEmbedding()
-            # add open router
-        elif self.service == self.availableServices[2]:  # openrouter
-            self.getOpenRouterLlmAndEmbedding()
+        if models is not None:
+            self.llm, self.embedModel = models
+            self.ownsModels = False
         else:
-            raise ValueError(f'service must be in ({self.availableServices})')
+            self._loadModels()
+            self.ownsModels = True
         Settings.llm = self.llm
         Settings.embed_model = self.embedModel
         # One memory buffer and event loop per ChatbotAgents instance (i.e., per paper):
@@ -659,6 +700,17 @@ class ChatbotAgents:
         self.updateQueryEngine()
         self.selectDefaultAgent()
     
+    def _loadModels(self):
+        """Set self.llm and self.embedModel for the configured service."""
+        if self.service == 'huggingface':
+            self.getHuggingFaceLlmAndEmbedding()
+        elif self.service == 'mistral':
+            self.getMistralLlmAndEmbedding()
+        elif self.service == 'openrouter':
+            self.getOpenRouterLlmAndEmbedding()
+        else:
+            raise ValueError(f'service must be in ({self.availableServices})')
+
     # Tokens kept free in every request besides the memory: system prompt, tool description,
     # the question, and the retrieved passages (vectorTopK chunks of up to chunk_size tokens each).
     PROMPT_MARGIN_TOKENS = 20000
@@ -998,54 +1050,22 @@ class ChatbotAgents:
         Comprehensive cleanup of resources to free GPU memory
         """
         try:
-            # Clear existing data
-            self.clearFiles()
+            # Clear existing data (a persistent index keeps every paper's chunks)
+            if not self.persistent:
+                self.clearFiles()
 
             # Drop this paper's agent memory and close its event loop
             if getattr(self, '_loop', None) is not None and not self._loop.is_closed():
                 self._loop.close()
             self.memory = None
 
-            # For HuggingFaceLLM and HuggingFaceEmbedding specifically
-            if hasattr(self, 'llm') and self.llm is not None:
-                # Access and clear the underlying model if possible
-                if hasattr(self.llm, '_model'):
-                    if hasattr(self.llm._model, 'cpu'):
-                        # Move model to CPU first
-                        self.llm._model.cpu()
-                    del self.llm._model
-                
-                # Clear tokenizer if it exists (only for HuggingFace LLMs)
-                tokenizer_attr = getattr(self.llm, "_tokenizer", None)
-                if tokenizer_attr is not None:
-                    try:
-                        delattr(self.llm, "_tokenizer")
-                    except Exception:
-                        pass
+            # Free the LLM and embedding model only if this instance loaded them; models shared
+            # across papers (passed in with `models=`) are freed once at the end of the run.
+            if self.ownsModels:
+                freeModels(getattr(self, 'llm', None), getattr(self, 'embedModel', None))
+            self.llm = None
+            self.embedModel = None
 
-                    
-                # Delete the entire LLM instance
-                del self.llm
-                self.llm = None
-                
-            if hasattr(self, 'embedModel') and self.embedModel is not None:
-                # Access and clear the underlying model
-                if hasattr(self.embedModel, 'client'):
-                    del self.embedModel.client
-                if hasattr(self.embedModel, '_model'):
-                    if hasattr(self.embedModel._model, 'cpu'):
-                        # Move model to CPU first. 8-bit/4-bit (bitsandbytes) models cannot be moved,
-                        # so a failure here must not skip the rest of the cleanup.
-                        try:
-                            self.embedModel._model.cpu()
-                        except Exception:
-                            pass
-                    del self.embedModel._model
-                    
-                # Delete the entire embedding model instance
-                del self.embedModel
-                self.embedModel = None
-                
             # Reset agent components
             if hasattr(self, 'vectorQueryEngineTool'):
                 del self.vectorQueryEngineTool
@@ -1281,7 +1301,7 @@ def countPdfWords(pdfPath):
         print(f"Could not read text from {pdfPath}: {e}")
         return 0
 
-def process_single_paper(row, questions, configPath, input_pdf_folder):
+def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False):
     """
     Process a single paper:
       - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty.
@@ -1305,7 +1325,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
 
     # Instantiate a new screeningAgent for this paper.
-    screeningAgent = ChatbotAgents(configPath=configPath)
+    screeningAgent = ChatbotAgents(configPath=configPath, models=models)
     try:
         screeningAgent.selectDefaultAgent()
 
@@ -1446,7 +1466,7 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
     return failed
 
 
-def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
+def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path, reindex=False):
     """
     Screen every paper in the metadata file (csv or xlsx), one after another:
       - each paper gets a fresh ChatbotAgents instance, which resets the database, uploads and indexes
@@ -1483,6 +1503,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         writeJsonAtomic(output_json_path, results)
         print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
 
+    models = None   # loaded once, when the first paper needs processing, and shared by all papers
     try:
         for i, row in enumerate(rows):
             paperId = row["pdf_filename"]
@@ -1501,7 +1522,10 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
                 print(f"\nThe saved result for {paperId} is not reusable ({reason}); processing the paper again.")
 
             try:
-                result = process_single_paper(row, questions, configPath, input_pdf_folder)
+                if models is None:
+                    models = loadModels(configPath)
+                result = process_single_paper(row, questions, configPath, input_pdf_folder,
+                                              models=models, reindex=reindex)
             except (NonRetryableApiError, PipelineConfigError) as e:
                 print(f"\nStopped at paper {i+1}/{len(rows)} ({paperId}): {e}\n"
                       f"Answers for this paper so far are in {individualDir}. "
@@ -1519,6 +1543,8 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     finally:
         # Also runs on Ctrl-C and on errors that stop the run, so the combined output is never stale.
         writeCombined()
+        if models is not None:
+            freeModels(*models)
 
     print(f"Processing complete for {len(results)} papers.")
     end_time = time.time()
