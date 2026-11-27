@@ -313,12 +313,25 @@ class Storage:
     def __init__(self, config) -> None:
         self.config = config
         self.getConfigs()
+        # The persistent index has its own node label and vector index, one per embedding dimension, so that
+        # (a) tools that search the default `Chunk` nodes without a paper filter (the chatbot, runs with
+        # persistent_index = False, earlier versions) never see the persistent papers, and (b) switching to an
+        # embedding model of another dimension starts a new index instead of failing every search.
+        storeNames = {}
+        if self.persistent:
+            storeNames = {"node_label": f"PaperChunk{self.embedDim}", "index_name": f"paper_chunk_{self.embedDim}"}
         self.vectorStore = Neo4jVectorStore(
             username=self.username,
             password=self.password,
             url=self.url,
             embedding_dimension=self.embedDim,
+            **storeNames,
         )
+        storedDim = getattr(self.vectorStore, 'embedding_dimension', self.embedDim)
+        if self.persistent and storedDim != self.embedDim:
+            raise PipelineConfigError(
+                f"The Neo4j vector index {storeNames['index_name']} has dimension {storedDim}, but the embedding "
+                f"model is configured with embedDim = {self.embedDim}. Fix embedDim, or drop that index.")
         self.storageContextVector = StorageContext.from_defaults(
             vector_store=self.vectorStore,
         )
@@ -329,6 +342,7 @@ class Storage:
         self.password = self.config.neo4j['password']
         service = self.config.llm_model['service']
         self.embedDim = self.config.dict[service]['embeddim']
+        self.persistent = bool(self.config.general.get('persistent_index', True))
 
     def clear(self):
         try:
@@ -348,16 +362,20 @@ class PaperIndexRegistry:
     exists and the chunk count still matches, so a paper interrupted mid-indexing is never reused.
     Every query is restricted to one paper key; nothing here touches other papers.
     """
-    def __init__(self, storage, driver=None) -> None:
+    def __init__(self, storage, driver=None, nodeLabel=None) -> None:
         self._ownsDriver = driver is None
         self.driver = driver or GraphDatabase.driver(storage.url, auth=(storage.username, storage.password))
+        self.label = nodeLabel or storage.vectorStore.node_label
+        # Without these, the filtered search and the chunk counts scan every chunk of every paper.
+        self._run(f"CREATE INDEX {self.label.lower()}_paper_key IF NOT EXISTS FOR (n:`{self.label}`) ON (n.paper_key)")
+        self._run("CREATE INDEX indexed_paper_key IF NOT EXISTS FOR (m:IndexedPaper) ON (m.paper_key)")
 
     def _run(self, query, **params):
         with self.driver.session() as session:
             return [record.data() for record in session.run(query, **params)]
 
     def countChunks(self, paperKey):
-        return self._run("MATCH (n:Chunk {paper_key: $k}) RETURN count(n) AS n", k=paperKey)[0]["n"]
+        return self._run(f"MATCH (n:`{self.label}` {{paper_key: $k}}) RETURN count(n) AS n", k=paperKey)[0]["n"]
 
     def isIndexed(self, paperKey):
         marker = self._run("MATCH (m:IndexedPaper {paper_key: $k}) RETURN m.n_chunks AS n_chunks", k=paperKey)
@@ -367,7 +385,7 @@ class PaperIndexRegistry:
         return expected > 0 and self.countChunks(paperKey) == expected
 
     def deletePaper(self, paperKey):
-        self._run("MATCH (n:Chunk {paper_key: $k}) DETACH DELETE n", k=paperKey)
+        self._run(f"MATCH (n:`{self.label}` {{paper_key: $k}}) DETACH DELETE n", k=paperKey)
         self._run("MATCH (m:IndexedPaper {paper_key: $k}) DETACH DELETE m", k=paperKey)
 
     def markIndexed(self, paperKey, fileName):
@@ -423,10 +441,11 @@ class Index:
         self.vectorIndex = vectorIndex
         return vectorIndex
     
-    def append(self, inputDocsDir, batchSize=1, paperKey=None):
+    def append(self, inputDocsDir, batchSize=1, paperKey=None, inputFiles=None):
+        """Index every file in `inputDocsDir`, or only `inputFiles` (the persistent index reads exactly one PDF)."""
+        source = {"input_files": inputFiles} if inputFiles else {"input_dir": inputDocsDir, "recursive": True}
         documents = SimpleDirectoryReader(
-            inputDocsDir,
-            recursive=True,
+            **source,
             filename_as_id=True,
             file_extractor={
                 '.csv': CustomCSVReader(),
@@ -434,7 +453,8 @@ class Index:
             },
         ).load_data()
         if paperKey:
-            tagDocuments(documents, paperKey)
+            expected = os.path.basename(inputFiles[0]) if inputFiles and len(inputFiles) == 1 else None
+            tagDocuments(documents, paperKey, expectedFile=expected)
         self._buildVector(documents, batchSize)
     
     def get(self):
@@ -596,14 +616,14 @@ Query:
         self.inputDir = self.config.dir_structure['inputdir']
         self.vectorTopK = self.config.retriever['vectortopk']
     
-    def _buildVectorQueryEngine(self, forceReindex=False, paperKey=None):
+    def _buildVectorQueryEngine(self, forceReindex=False, paperKey=None, inputFiles=None):
         """
         With `paperKey`, every search is restricted to that paper's chunks, and a PaperKeyGuard checks every
         retrieved chunk before it reaches the model (self.leakGuard). Without it, the whole index is searched,
         as before (the database then holds only the current paper).
         """
         if forceReindex:
-            self.index.append(inputDocsDir=self.inputDir, paperKey=paperKey)
+            self.index.append(inputDocsDir=self.inputDir, paperKey=paperKey, inputFiles=inputFiles)
         filters, postprocessors, self.leakGuard = None, [], None
         if paperKey:
             filters = MetadataFilters(filters=[
@@ -834,6 +854,9 @@ class ChatbotAgents:
             temperature=self.temperature,
             max_tokens=self.max_new_tokens,
             context_window=contextWindow,
+            # The LLM is shared by all papers of a run, but each paper's agent runs on its own event loop,
+            # closed after the paper. A cached async client would keep connections bound to a closed loop.
+            reuse_client=False,
         )
         print(f"OpenRouter model {self.llmModel}: context_window = {self.llm.metadata.context_window}")
 
@@ -962,9 +985,9 @@ class ChatbotAgents:
         queryEngine = getattr(self, 'queryEngine', None)
         return getattr(queryEngine, 'leakGuard', None)
 
-    def appendIndex(self, vectorTopK, cutoffScore, paperKey=None):
+    def appendIndex(self, vectorTopK, cutoffScore, paperKey=None, inputFiles=None):
         self.updateParams(vectorTopK, cutoffScore)
-        self.queryEngine._buildVectorQueryEngine(forceReindex=True, paperKey=paperKey)
+        self.queryEngine._buildVectorQueryEngine(forceReindex=True, paperKey=paperKey, inputFiles=inputFiles)
         self._buildAll()
         return self.successMsg
     
@@ -1260,8 +1283,16 @@ def computePaperKey(pdfPath, config):
     digest.update(json.dumps(settings, sort_keys=True).encode("utf-8"))
     return digest.hexdigest()[:16]
 
-def tagDocuments(documents, paperKey):
-    """Store `paperKey` on each document (its chunks inherit it), without changing what is embedded or sent to the LLM."""
+def tagDocuments(documents, paperKey, expectedFile=None):
+    """
+    Store `paperKey` on each document (its chunks inherit it), without changing what is embedded or sent to the LLM.
+    With `expectedFile`, every document must come from that file; otherwise ContextLeakError (nothing is tagged).
+    """
+    if expectedFile is not None:
+        others = sorted({str(d.metadata.get('file_name')) for d in documents
+                         if d.metadata.get('file_name') != expectedFile})
+        if others:
+            raise ContextLeakError(f"indexing {expectedFile} also read {', '.join(others)}; nothing was indexed")
     for doc in documents:
         doc.metadata['paper_key'] = paperKey
         for keys in (doc.excluded_embed_metadata_keys, doc.excluded_llm_metadata_keys):
@@ -1369,8 +1400,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
                 try:
                     if reindex or not registry.isIndexed(paperKey):
                         registry.deletePaper(paperKey)   # leftovers of an interrupted or forced indexing
-                        print(screeningAgent.uploadFiles([pdf_path]))
-                        screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey)
+                        # Read exactly this PDF (not the upload folder, which may hold leftovers of other papers)
+                        screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey, inputFiles=[pdf_path])
                         nChunks = registry.markIndexed(paperKey, pdf_filename)
                         print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey})")
                     else:

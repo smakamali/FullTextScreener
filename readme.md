@@ -252,13 +252,13 @@ The script will:
 - **Resuming:** rerun with `skip_existing = True`. Complete results made with the same questionnaire are reused; partial, unreadable or outdated results are redone.
 
 **Persistent index (`persistent_index = True`, the default from 0.10.0):**
-- **What is kept:** every indexed paper stays in Neo4j across runs. Each chunk carries a `paper_key`: a fingerprint of the PDF's bytes and of the indexing settings (chunking method and sizes, embedding model, reader version). A marker node (`IndexedPaper`) records how many chunks a paper has once all of them are written.
+- **What is kept:** every indexed paper stays in Neo4j across runs, as `PaperChunk<dim>` nodes in the vector index `paper_chunk_<dim>` (one per embedding dimension), apart from the `Chunk` nodes that the chatbot and runs with `persistent_index = False` search. Each chunk carries a `paper_key`: a fingerprint of the PDF's bytes and of the indexing settings (chunking method and sizes, embedding model, reader version). A marker node (`IndexedPaper`) records how many chunks a paper has once all of them are written.
 - **Reuse:** a paper whose marker exists and whose chunk count matches is not indexed again. A renamed copy of the same PDF reuses its index; a replaced PDF or changed settings get a new key and are indexed again. A paper interrupted mid-indexing is indexed again from scratch.
-- **Isolation:** every search is restricted to the current paper's key, and a guard checks every retrieved chunk. If a chunk of another paper (or none at all) is ever returned, the question is recorded as failed (`error` starting with `context leak`), never answered.
+- **Isolation:** a paper is indexed from its own PDF only (never from the upload folder), and indexing stops if any other file is read. Every search is restricted to the current paper's key, and a guard checks every retrieved chunk. If a chunk of another paper (or none at all) is ever returned, the question is recorded as failed (`error` starting with `context leak`), never answered.
 - **Index again:** `python FullTextScreener.py --reindex` indexes each paper of the run again.
 - **Models:** the LLM and embedding model are loaded once per run, when the first paper needs processing.
-- **Before 0.10.0:** `persistent_index = False` wipes the database and indexes the paper again for every paper. Do not run two pipelines against the same Neo4j database at once: a run with `persistent_index = False` wipes the other run's chunks.
-- **Upgrading:** chunks indexed by earlier versions have no `paper_key` and are never retrieved; clear the database once (or leave them; they only take space).
+- **Before 0.10.0:** `persistent_index = False` wipes the database and indexes the paper again for every paper. That wipe (like the chatbot's "clear") deletes every node, the persistent index included, so do not run it, or an earlier version, while a persistent run is using the same database.
+- **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
 ## Output Format
 

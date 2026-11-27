@@ -458,8 +458,10 @@ class FakeNeo4j:
     def run(self, query, **params):
         self.queries.append((query, params))
         key = params.get("k")
+        if query.startswith("CREATE INDEX"):
+            return []
         if "DELETE" in query:
-            if ":Chunk" in query:
+            if "PaperChunk" in query or ":Chunk" in query:
                 self.chunks.pop(key, None)
             if ":IndexedPaper" in query:
                 self.markers.pop(key, None)
@@ -477,7 +479,7 @@ class FakeNeo4j:
 class RegistryTests(unittest.TestCase):
     def registry(self, **kw):
         self.db = FakeNeo4j(**kw)
-        return fts.PaperIndexRegistry(storage=None, driver=self.db)
+        return fts.PaperIndexRegistry(storage=None, driver=self.db, nodeLabel="PaperChunk3584")
 
     def test_marked_with_matching_count_is_indexed(self):
         self.assertTrue(self.registry(chunks={"k1": 12}, markers={"k1": 12}).isIndexed("k1"))
@@ -495,6 +497,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(self.db.chunks, {"k2": 4})
         self.assertEqual(self.db.markers, {"k2": 4})
         for query, params in self.db.queries:
+            if query.startswith("CREATE INDEX"):
+                continue
             self.assertEqual(params.get("k"), "k1")
             self.assertIn("$k", query)
 
@@ -740,6 +744,9 @@ class PersistentFlowTests(unittest.TestCase):
         self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("paperKey"), key)
         self.agent.setPaper.assert_called_once_with(key)
         self.agent.clearFiles.assert_not_called()
+        # C1: the PDF itself is read, never whatever happens to be in inputDir
+        self.agent.uploadFiles.assert_not_called()
+        self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("inputFiles"), [os.path.join(self.pdfs, "a.pdf")])
         self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"))
 
     def test_indexed_paper_skips_indexing(self):
@@ -799,6 +806,80 @@ class PersistentFlowTests(unittest.TestCase):
     def test_reindex_cli_flag(self):
         self.assertTrue(fts.parseArgs(["--reindex"]).reindex)
         self.assertFalse(fts.parseArgs([]).reindex)
+
+
+class ReviewFixTests(unittest.TestCase):
+    """Fixes from the whole-branch review (C1, I1-I4)."""
+
+    def test_tag_documents_rejects_other_file(self):
+        from llama_index.core import Document
+        docs = [Document(text="t", metadata={"file_name": "paper_a.pdf"}),
+                Document(text="u", metadata={"file_name": "leftover.pdf"})]
+        with self.assertRaises(fts.ContextLeakError):
+            fts.tagDocuments(docs, "k1", expectedFile="paper_a.pdf")
+
+    def test_append_reads_only_the_given_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("a.txt", "b.txt"):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                    f.write(f"text of {name}")
+            index = object.__new__(fts.Index)
+            index.llm = None
+            captured = []
+            index._buildVector = lambda docs, batchSize=1: captured.extend(docs)
+            index.append(tmp, paperKey="k1", inputFiles=[os.path.join(tmp, "a.txt")])
+        self.assertTrue(captured)
+        self.assertEqual({d.metadata["file_name"] for d in captured}, {"a.txt"})
+        self.assertEqual({d.metadata["paper_key"] for d in captured}, {"k1"})
+
+    @mock.patch.object(fts, "getOpenRouterContextWindow", return_value=262144)
+    @mock.patch.object(fts.ChatbotAgents, "buildHuggingFaceEmbedding", return_value="embed")
+    def test_openrouter_client_not_reused(self, *_):
+        loader = object.__new__(fts.ChatbotAgents)
+        loader.contextWindow, loader.apiKey, loader.llmModel = 0, "test-key", "mistralai/mistral-large-2512"
+        loader.temperature, loader.max_new_tokens = 0.0, 1024
+        loader.getOpenRouterLlmAndEmbedding()
+        self.assertFalse(loader.llm.reuse_client)
+
+    def storageConfig(self, persistent):
+        return types.SimpleNamespace(
+            neo4j={"url1": "bolt://x", "username": "u", "password": "p"},
+            llm_model={"service": "openrouter"}, dict={"openrouter": {"embeddim": 3584}},
+            general={"persistent_index": persistent})
+
+    def test_persistent_store_uses_own_label_and_index(self):
+        with mock.patch.object(fts, "Neo4jVectorStore") as store, mock.patch.object(fts, "StorageContext"):
+            store.return_value.embedding_dimension = 3584
+            fts.Storage(self.storageConfig(True))
+        kwargs = store.call_args.kwargs
+        self.assertEqual(kwargs["node_label"], "PaperChunk3584")
+        self.assertEqual(kwargs["index_name"], "paper_chunk_3584")
+
+    def test_non_persistent_store_keeps_defaults(self):
+        with mock.patch.object(fts, "Neo4jVectorStore") as store, mock.patch.object(fts, "StorageContext"):
+            store.return_value.embedding_dimension = 3584
+            fts.Storage(self.storageConfig(False))
+        self.assertNotIn("node_label", store.call_args.kwargs)
+        self.assertNotIn("index_name", store.call_args.kwargs)
+
+    def test_dimension_mismatch_stops(self):
+        with mock.patch.object(fts, "Neo4jVectorStore") as store, mock.patch.object(fts, "StorageContext"):
+            store.return_value.embedding_dimension = 1536
+            with self.assertRaises(fts.PipelineConfigError):
+                fts.Storage(self.storageConfig(True))
+
+    def test_registry_creates_key_index(self):
+        db = FakeNeo4j()
+        fts.PaperIndexRegistry(storage=None, driver=db, nodeLabel="PaperChunk3584")
+        created = [q for q, _ in db.queries if q.startswith("CREATE INDEX")]
+        self.assertTrue(any("PaperChunk3584" in q and "paper_key" in q and "IF NOT EXISTS" in q for q in created))
+
+    def test_registry_uses_store_label(self):
+        db = FakeNeo4j(chunks={"k1": 2})
+        storage = types.SimpleNamespace(vectorStore=types.SimpleNamespace(node_label="PaperChunk3584"))
+        reg = fts.PaperIndexRegistry(storage=storage, driver=db)
+        reg.countChunks("k1")
+        self.assertIn("(n:`PaperChunk3584`", db.queries[-1][0])
 
 
 if __name__ == "__main__":
