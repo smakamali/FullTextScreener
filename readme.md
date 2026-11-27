@@ -4,7 +4,7 @@ A literature screening tool for automated analysis of scientific papers. This to
 
 ## Version
 
-Current version: 0.8.0
+Current version: 0.10.0
 
 ## Overview
 
@@ -111,11 +111,12 @@ The `ConfigLitScr.cfg` file contains all the necessary configuration parameters.
 ### General Settings
 ```
 [general]
-appVersion = 0.9.1
+appVersion = 0.10.0
 forceReindex = False
 enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
+persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
 ```
 
 ### LLM Model Settings
@@ -249,6 +250,15 @@ The script will:
 - **A question that fails:** a reply that cannot be parsed is asked once more. If the question still fails, or its API calls keep failing, it is recorded with an `error` key and the run continues. The paper is then saved as `<pdf_filename>.partial.json`.
 - **Errors that stop the run:** errors retrying cannot fix (out of credit, invalid key, unknown model) and setup errors stop the run. `outputFile` is written however the run ends, including on Ctrl-C.
 - **Resuming:** rerun with `skip_existing = True`. Complete results made with the same questionnaire are reused; partial, unreadable or outdated results are redone.
+
+**Persistent index (`persistent_index = True`, the default from 0.10.0):**
+- **What is kept:** every indexed paper stays in Neo4j across runs, as `PaperChunk<dim>` nodes in the vector index `paper_chunk_<dim>` (one per embedding dimension), apart from the `Chunk` nodes that the chatbot and runs with `persistent_index = False` search. Each chunk carries a `paper_key`: a fingerprint of the PDF's bytes and of the indexing settings (chunking method and sizes, embedding model, reader version). A marker node (`IndexedPaper`) records how many chunks a paper has once all of them are written.
+- **Reuse:** a paper whose marker exists and whose chunk count matches is not indexed again. A renamed copy of the same PDF reuses its index; a replaced PDF or changed settings get a new key and are indexed again. A paper interrupted mid-indexing is indexed again from scratch.
+- **Isolation:** a paper is indexed from its own PDF only (never from the upload folder), and indexing stops if any other file is read. Every search is restricted to the current paper's key, and a guard checks every retrieved chunk. If a chunk of another paper (or none at all) is ever returned, the question is recorded as failed (`error` starting with `context leak`), never answered.
+- **Index again:** `python FullTextScreener.py --reindex` indexes each paper of the run again.
+- **Models:** the LLM and embedding model are loaded once per run, when the first paper needs processing.
+- **Before 0.10.0:** `persistent_index = False` wipes the database and indexes the paper again for every paper. That wipe (like the chatbot's "clear") deletes every node, the persistent index included, so do not run it, or an earlier version, while a persistent run is using the same database.
+- **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
 ## Output Format
 

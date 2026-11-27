@@ -435,6 +435,6 @@ Assume we have 4 research papers with unique IDs and corresponding PDF files. Th
     
     Once processing for a paper is complete, the `cleanup` method is called to:
     
-    - Clear the uploaded files and database entries.
-    - Release GPU memory by clearing model objects and invoking garbage collection.
+    - Clear the uploaded files and database entries (only with `persistent_index = False`; the persistent index keeps every paper).
+    - Release GPU memory by clearing model objects and invoking garbage collection (models shared across the run are released once, at the end).
     - Ensure that each process leaves no lingering resources before processing the next paper.

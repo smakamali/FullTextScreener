@@ -23,6 +23,7 @@ import json
 import csv
 import hashlib
 import argparse
+from typing import Optional
 import datetime
 import pandas as pd
 from configparser import ConfigParser
@@ -42,6 +43,9 @@ from llama_index.core.utils import iter_batch
 from llama_index.core.agent import ReActAgent
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
+from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, FilterOperator
+from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.bridge.pydantic import PrivateAttr
 import asyncio
 
 # Append the root directory to path so that the modules can be imported
@@ -309,12 +313,25 @@ class Storage:
     def __init__(self, config) -> None:
         self.config = config
         self.getConfigs()
+        # The persistent index has its own node label and vector index, one per embedding dimension, so that
+        # (a) tools that search the default `Chunk` nodes without a paper filter (the chatbot, runs with
+        # persistent_index = False, earlier versions) never see the persistent papers, and (b) switching to an
+        # embedding model of another dimension starts a new index instead of failing every search.
+        storeNames = {}
+        if self.persistent:
+            storeNames = {"node_label": f"PaperChunk{self.embedDim}", "index_name": f"paper_chunk_{self.embedDim}"}
         self.vectorStore = Neo4jVectorStore(
             username=self.username,
             password=self.password,
             url=self.url,
             embedding_dimension=self.embedDim,
+            **storeNames,
         )
+        storedDim = getattr(self.vectorStore, 'embedding_dimension', self.embedDim)
+        if self.persistent and storedDim != self.embedDim:
+            raise PipelineConfigError(
+                f"The Neo4j vector index {storeNames['index_name']} has dimension {storedDim}, but the embedding "
+                f"model is configured with embedDim = {self.embedDim}. Fix embedDim, or drop that index.")
         self.storageContextVector = StorageContext.from_defaults(
             vector_store=self.vectorStore,
         )
@@ -325,6 +342,7 @@ class Storage:
         self.password = self.config.neo4j['password']
         service = self.config.llm_model['service']
         self.embedDim = self.config.dict[service]['embeddim']
+        self.persistent = bool(self.config.general.get('persistent_index', True))
 
     def clear(self):
         try:
@@ -336,6 +354,52 @@ class Storage:
         except Exception as e:
             print(f"Error occurred while clearing the database: {e}")
             return f"Clearing the database failed with error: {e}"
+
+class PaperIndexRegistry:
+    """
+    Which papers the persistent index holds. A paper's chunks are `Chunk` nodes with a `paper_key`; once all of
+    them are written, an `IndexedPaper` marker records their number. A paper counts as indexed only if its marker
+    exists and the chunk count still matches, so a paper interrupted mid-indexing is never reused.
+    Every query is restricted to one paper key; nothing here touches other papers.
+    """
+    def __init__(self, storage, driver=None, nodeLabel=None) -> None:
+        self._ownsDriver = driver is None
+        self.driver = driver or GraphDatabase.driver(storage.url, auth=(storage.username, storage.password))
+        self.label = nodeLabel or storage.vectorStore.node_label
+        # Without these, the filtered search and the chunk counts scan every chunk of every paper.
+        self._run(f"CREATE INDEX {self.label.lower()}_paper_key IF NOT EXISTS FOR (n:`{self.label}`) ON (n.paper_key)")
+        self._run("CREATE INDEX indexed_paper_key IF NOT EXISTS FOR (m:IndexedPaper) ON (m.paper_key)")
+
+    def _run(self, query, **params):
+        with self.driver.session() as session:
+            return [record.data() for record in session.run(query, **params)]
+
+    def countChunks(self, paperKey):
+        return self._run(f"MATCH (n:`{self.label}` {{paper_key: $k}}) RETURN count(n) AS n", k=paperKey)[0]["n"]
+
+    def isIndexed(self, paperKey):
+        marker = self._run("MATCH (m:IndexedPaper {paper_key: $k}) RETURN m.n_chunks AS n_chunks", k=paperKey)
+        if not marker:
+            return False
+        expected = marker[0]["n_chunks"] or 0
+        return expected > 0 and self.countChunks(paperKey) == expected
+
+    def deletePaper(self, paperKey):
+        self._run(f"MATCH (n:`{self.label}` {{paper_key: $k}}) DETACH DELETE n", k=paperKey)
+        self._run("MATCH (m:IndexedPaper {paper_key: $k}) DETACH DELETE m", k=paperKey)
+
+    def markIndexed(self, paperKey, fileName):
+        n = self.countChunks(paperKey)
+        if n == 0:
+            raise ValueError(f"No chunks were stored for {fileName} (key {paperKey}); it was not indexed.")
+        self._run("MERGE (m:IndexedPaper {paper_key: $k}) "
+                  "SET m.file_name = $f, m.n_chunks = $n, m.indexed_at = $t",
+                  k=paperKey, f=fileName, n=n, t=datetime.datetime.now().isoformat(timespec="seconds"))
+        return n
+
+    def close(self):
+        if self._ownsDriver:
+            self.driver.close()
 
 ################################ Index Building ################################
 class Index:
@@ -377,16 +441,20 @@ class Index:
         self.vectorIndex = vectorIndex
         return vectorIndex
     
-    def append(self, inputDocsDir, batchSize=1):
+    def append(self, inputDocsDir, batchSize=1, paperKey=None, inputFiles=None):
+        """Index every file in `inputDocsDir`, or only `inputFiles` (the persistent index reads exactly one PDF)."""
+        source = {"input_files": inputFiles} if inputFiles else {"input_dir": inputDocsDir, "recursive": True}
         documents = SimpleDirectoryReader(
-            inputDocsDir,
-            recursive=True,
+            **source,
             filename_as_id=True,
             file_extractor={
                 '.csv': CustomCSVReader(),
                 '.pdf': CustomPDFReader(llm=self.llm),
             },
         ).load_data()
+        if paperKey:
+            expected = os.path.basename(inputFiles[0]) if inputFiles and len(inputFiles) == 1 else None
+            tagDocuments(documents, paperKey, expectedFile=expected)
         self._buildVector(documents, batchSize)
     
     def get(self):
@@ -435,6 +503,42 @@ class Index:
         for index_info in indexes:
             self.drop_index(index_info)
         print("Database cleared successfully!")
+
+################################ Retrieval Guard ################################
+class ContextLeakError(Exception):
+    """A search for one paper returned a chunk of another paper (or of no known paper), or nothing at all."""
+
+
+class PaperKeyGuard(BaseNodePostprocessor):
+    """
+    Second line of defence behind the retriever's paper filter: every retrieved chunk must carry the paper key
+    of the paper being screened. Otherwise it raises ContextLeakError and records the violation, because the
+    agent library turns tool errors into text and the model could otherwise go on to answer anyway; the answer
+    loop reads the violation with consumeViolation() and records the question as failed.
+    """
+    paperKey: str
+    _violation: Optional[str] = PrivateAttr(default=None)
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "PaperKeyGuard"
+
+    def _postprocess_nodes(self, nodes, query_bundle=None):
+        if not nodes:
+            message = f"the search for paper {self.paperKey} returned no passages"
+        else:
+            foreign = sorted({str(n.node.metadata.get('paper_key')) for n in nodes
+                              if n.node.metadata.get('paper_key') != self.paperKey})
+            message = (f"the search for paper {self.paperKey} returned passages of {', '.join(foreign)}"
+                       if foreign else None)
+        if message:
+            self._violation = message
+            raise ContextLeakError(message)
+        return nodes
+
+    def consumeViolation(self):
+        message, self._violation = self._violation, None
+        return message
 
 ################################ OpenRouter Helpers ################################
 _openRouterContextCache = {}
@@ -512,16 +616,29 @@ Query:
         self.inputDir = self.config.dir_structure['inputdir']
         self.vectorTopK = self.config.retriever['vectortopk']
     
-    def _buildVectorQueryEngine(self, forceReindex=False):
+    def _buildVectorQueryEngine(self, forceReindex=False, paperKey=None, inputFiles=None):
+        """
+        With `paperKey`, every search is restricted to that paper's chunks, and a PaperKeyGuard checks every
+        retrieved chunk before it reaches the model (self.leakGuard). Without it, the whole index is searched,
+        as before (the database then holds only the current paper).
+        """
         if forceReindex:
-            self.index.append(inputDocsDir=self.inputDir)
+            self.index.append(inputDocsDir=self.inputDir, paperKey=paperKey, inputFiles=inputFiles)
+        filters, postprocessors, self.leakGuard = None, [], None
+        if paperKey:
+            filters = MetadataFilters(filters=[
+                MetadataFilter(key="paper_key", value=paperKey, operator=FilterOperator.EQ)])
+            self.leakGuard = PaperKeyGuard(paperKey=paperKey)
+            postprocessors = [self.leakGuard]
         self.vectorRetriever = VectorIndexRetriever(
             index=self.index.vectorIndex,
-            similarity_top_k=self.vectorTopK
+            similarity_top_k=self.vectorTopK,
+            filters=filters,
         )
         self.vectorQueryEngine = RetrieverQueryEngine.from_args(
             self.vectorRetriever,
             text_qa_template=self.textQaTemplate,
+            node_postprocessors=postprocessors,
         )
         print("Vector Query Engine was built successfully!")
         return self.successMsg
@@ -531,6 +648,51 @@ Query:
         return self.vectorQueryEngine, rm
 
 
+################################ Model Loading ################################
+def loadModels(configPath):
+    """Load the configured LLM and embedding model once, to share across the papers of a run: (llm, embedModel)."""
+    loader = object.__new__(ChatbotAgents)
+    loader.configPath = configPath
+    loader.config = Config(configPath)
+    loader.getConfigs()
+    loader.getModelConfigs(configPath)
+    loader._loadModels()
+    # A wrong embedDim would not fail at indexing: every filtered search (which requires that size) would
+    # just return nothing, and every question would fail as "no passages". Check it once, here.
+    size = len(loader.embedModel.get_text_embedding("embedding size check"))
+    if size != loader.embedDim:
+        raise PipelineConfigError(
+            f"The embedding model {getattr(loader, 'embeddingModelName', '')} returns {size}-dimensional vectors, "
+            f"but embedDim = {loader.embedDim} in [{loader.service}]. Set embedDim = {size}.")
+    return loader.llm, loader.embedModel
+
+def freeModels(llm, embedModel):
+    """Release an LLM and an embedding model (and their GPU memory, for HuggingFace models)."""
+    if llm is not None:
+        if hasattr(llm, '_model'):
+            if hasattr(llm._model, 'cpu'):
+                llm._model.cpu()
+            del llm._model
+        if getattr(llm, '_tokenizer', None) is not None:
+            try:
+                delattr(llm, '_tokenizer')
+            except Exception:
+                pass
+    if embedModel is not None:
+        if hasattr(embedModel, 'client'):
+            del embedModel.client
+        if hasattr(embedModel, '_model'):
+            if hasattr(embedModel._model, 'cpu'):
+                # 8-bit/4-bit (bitsandbytes) models cannot be moved; that must not skip the rest
+                try:
+                    embedModel._model.cpu()
+                except Exception:
+                    pass
+            del embedModel._model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 ################################ Chatbot Agents ################################
 
 class ChatbotAgents:
@@ -539,31 +701,50 @@ class ChatbotAgents:
     This version supports only vector-based retrieval.
     """
     successMsg = 'Chatbot Agents updated successfully!'
-    def __init__(self, configPath) -> None:
-        self.availableServices = ['huggingface', 'mistral',"openrouter"]
+    availableServices = ['huggingface', 'mistral', 'openrouter']
+
+    def __init__(self, configPath, models=None, loop=None) -> None:
+        """
+        `models`: an (llm, embedModel) pair from loadModels(), shared by every paper of a run, so the models are
+        loaded once instead of once per paper. Without it, this instance loads (and on cleanup frees) its own.
+        `loop`: the run's event loop, shared by every paper. Shared models hold async clients bound to the loop
+        they first ran on, so all papers must use the same loop; the run closes it at the end. Without it, this
+        instance creates (and on cleanup closes) its own.
+        """
         self.configPath = configPath
         self.config = Config(configPath)
+        # Same setting the database layer (Storage) reads: True keeps the persistent index on cleanup
+        self.persistent = bool(self.config.general.get('persistent_index', True))
         self.getConfigs()
         self.getModelConfigs(self.configPath)
-        if self.service == self.availableServices[0]:  # huggingface
-            self.getHuggingFaceLlmAndEmbedding()
-        elif self.service == self.availableServices[1]:  # mistral
-            self.getMistralLlmAndEmbedding()
-            # add open router
-        elif self.service == self.availableServices[2]:  # openrouter
-            self.getOpenRouterLlmAndEmbedding()
+        if models is not None:
+            self.llm, self.embedModel = models
+            self.ownsModels = False
         else:
-            raise ValueError(f'service must be in ({self.availableServices})')
+            self._loadModels()
+            self.ownsModels = True
         Settings.llm = self.llm
         Settings.embed_model = self.embedModel
-        # One memory buffer and event loop per ChatbotAgents instance (i.e., per paper):
-        # every question for this paper is answered with the full history of earlier
-        # questions and answers. A new paper creates a new instance, so memory starts empty.
+        # One memory buffer per ChatbotAgents instance (i.e., per paper): every question for this paper is
+        # answered with the full history of earlier questions and answers. A new paper creates a new
+        # instance, so memory starts empty. The event loop is the run's (shared) or this instance's own.
         self.memory = ChatMemoryBuffer.from_defaults(token_limit=self.effectiveMemoryLimit())
-        self._loop = asyncio.new_event_loop()
+        self.ownsLoop = loop is None
+        self._loop = asyncio.new_event_loop() if loop is None else loop
         self.updateQueryEngine()
         self.selectDefaultAgent()
     
+    def _loadModels(self):
+        """Set self.llm and self.embedModel for the configured service."""
+        if self.service == 'huggingface':
+            self.getHuggingFaceLlmAndEmbedding()
+        elif self.service == 'mistral':
+            self.getMistralLlmAndEmbedding()
+        elif self.service == 'openrouter':
+            self.getOpenRouterLlmAndEmbedding()
+        else:
+            raise ValueError(f'service must be in ({self.availableServices})')
+
     # Tokens kept free in every request besides the memory: system prompt, tool description,
     # the question, and the retrieved passages (vectorTopK chunks of up to chunk_size tokens each).
     PROMPT_MARGIN_TOKENS = 20000
@@ -802,9 +983,20 @@ class ChatbotAgents:
             early_stopping_method="generate",
         )
     
-    def appendIndex(self, vectorTopK, cutoffScore):
+    def setPaper(self, paperKey):
+        """Restrict the agent's search tool to one paper's chunks (with the leak guard)."""
+        self.queryEngine._buildVectorQueryEngine(paperKey=paperKey)
+        self._buildAll()
+        self.selectDefaultAgent()
+
+    @property
+    def leakGuard(self):
+        queryEngine = getattr(self, 'queryEngine', None)
+        return getattr(queryEngine, 'leakGuard', None)
+
+    def appendIndex(self, vectorTopK, cutoffScore, paperKey=None, inputFiles=None):
         self.updateParams(vectorTopK, cutoffScore)
-        self.queryEngine._buildVectorQueryEngine(forceReindex=True)
+        self.queryEngine._buildVectorQueryEngine(forceReindex=True, paperKey=paperKey, inputFiles=inputFiles)
         self._buildAll()
         return self.successMsg
     
@@ -892,54 +1084,22 @@ class ChatbotAgents:
         Comprehensive cleanup of resources to free GPU memory
         """
         try:
-            # Clear existing data
-            self.clearFiles()
+            # Clear existing data (a persistent index keeps every paper's chunks)
+            if not self.persistent:
+                self.clearFiles()
 
-            # Drop this paper's agent memory and close its event loop
-            if getattr(self, '_loop', None) is not None and not self._loop.is_closed():
+            # Drop this paper's agent memory, and close its event loop if it is this instance's own
+            if getattr(self, 'ownsLoop', True) and getattr(self, '_loop', None) is not None                     and not self._loop.is_closed():
                 self._loop.close()
             self.memory = None
 
-            # For HuggingFaceLLM and HuggingFaceEmbedding specifically
-            if hasattr(self, 'llm') and self.llm is not None:
-                # Access and clear the underlying model if possible
-                if hasattr(self.llm, '_model'):
-                    if hasattr(self.llm._model, 'cpu'):
-                        # Move model to CPU first
-                        self.llm._model.cpu()
-                    del self.llm._model
-                
-                # Clear tokenizer if it exists (only for HuggingFace LLMs)
-                tokenizer_attr = getattr(self.llm, "_tokenizer", None)
-                if tokenizer_attr is not None:
-                    try:
-                        delattr(self.llm, "_tokenizer")
-                    except Exception:
-                        pass
+            # Free the LLM and embedding model only if this instance loaded them; models shared
+            # across papers (passed in with `models=`) are freed once at the end of the run.
+            if self.ownsModels:
+                freeModels(getattr(self, 'llm', None), getattr(self, 'embedModel', None))
+            self.llm = None
+            self.embedModel = None
 
-                    
-                # Delete the entire LLM instance
-                del self.llm
-                self.llm = None
-                
-            if hasattr(self, 'embedModel') and self.embedModel is not None:
-                # Access and clear the underlying model
-                if hasattr(self.embedModel, 'client'):
-                    del self.embedModel.client
-                if hasattr(self.embedModel, '_model'):
-                    if hasattr(self.embedModel._model, 'cpu'):
-                        # Move model to CPU first. 8-bit/4-bit (bitsandbytes) models cannot be moved,
-                        # so a failure here must not skip the rest of the cleanup.
-                        try:
-                            self.embedModel._model.cpu()
-                        except Exception:
-                            pass
-                    del self.embedModel._model
-                    
-                # Delete the entire embedding model instance
-                del self.embedModel
-                self.embedModel = None
-                
             # Reset agent components
             if hasattr(self, 'vectorQueryEngineTool'):
                 del self.vectorQueryEngineTool
@@ -1071,7 +1231,50 @@ def parseAnswer(text, _depth=0):
             answer = _normalizeAnswer(value, _depth)
             if answer is not None:
                 return answer
+    # Last resort: a value written as several quoted strings ("a"; "b" or "a", "b"), which is not JSON
+    for candidate in candidates:
+        repaired = _joinSplitStrings(candidate)
+        if repaired == candidate:
+            continue
+        for value in _decodeJsonObjects(repaired):
+            answer = _normalizeAnswer(value, _depth)
+            if answer is not None:
+                return answer
     return None
+
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*"', re.S)
+
+def _joinSplitStrings(text):
+    """
+    Join a value the model wrote as several quoted strings separated by ';' or ',' (e.g. "Evidence": "a"; "b")
+    into one string ("a; b"). A string counts as a continuation only if it follows such a value and is not a
+    key (not followed by ':'). Strings in arrays and valid key/value pairs are left as they are.
+    """
+    tokens = list(_JSON_STRING.finditer(text))
+    out, last, i = [], 0, 0
+    while i < len(tokens):
+        token = tokens[i]
+        isValue = text[:token.start()].rstrip().endswith(':')
+        out.append(text[last:token.start()])
+        end, j, parts = token.end(), i + 1, [token.group()]
+        if isValue:
+            while j < len(tokens):
+                gap = text[end:tokens[j].start()].strip()
+                isKey = text[tokens[j].end():].lstrip().startswith(':')
+                if gap not in (';', ',') or isKey:
+                    break
+                parts.append(tokens[j].group())
+                end, j = tokens[j].end(), j + 1
+        if len(parts) > 1:
+            try:
+                out.append(json.dumps("; ".join(json.loads(part, strict=False) for part in parts), ensure_ascii=False))
+            except ValueError:
+                out.append(text[token.start():end])
+        else:
+            out.append(token.group())
+        last, i = end, j
+    out.append(text[last:])
+    return "".join(out)
 
 def cleanAndConvertJson(jsonText):
     """Backward-compatible wrapper: the parsed answer, or the original text if it cannot be parsed."""
@@ -1104,6 +1307,50 @@ def save_individual_result(paper_id, paper_data, output_dir, suffix=""):
 def questionnaireHash(questions):
     """A fingerprint of the questionnaire, stored with each result so that resume can tell versions apart."""
     return hashlib.sha256(json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+# Bump whenever the PDF reader or the chunking code changes, so that every paper is indexed again.
+READER_VERSION = "1"
+
+def computePaperKey(pdfPath, config):
+    """
+    The key that identifies a paper's chunks in the persistent index: a fingerprint of the PDF's bytes and of
+    every setting that changes how it is chunked or embedded. The file name is not part of it, so a renamed
+    copy reuses the index; a replaced PDF or changed settings get a new key, and so a fresh index.
+    """
+    nodeParser = config.nodeparser
+    service = config.llm_model['service']
+    settings = {
+        "nodeParserType": nodeParser.get('nodeparsertype'),
+        "chunk_size": nodeParser.get('chunk_size'),
+        "chunk_overlap": nodeParser.get('chunk_overlap'),
+        "bufferSize": nodeParser.get('buffersize'),
+        "breakpointPercentileThreshold": nodeParser.get('breakpointpercentilethreshold'),
+        "embed_model": config.dict[service].get('embed_model'),
+        "reader_version": READER_VERSION,
+    }
+    digest = hashlib.sha256()
+    with open(pdfPath, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    digest.update(json.dumps(settings, sort_keys=True).encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+def tagDocuments(documents, paperKey, expectedFile=None):
+    """
+    Store `paperKey` on each document (its chunks inherit it), without changing what is embedded or sent to the LLM.
+    With `expectedFile`, every document must come from that file; otherwise ContextLeakError (nothing is tagged).
+    """
+    if expectedFile is not None:
+        others = sorted({str(d.metadata.get('file_name')) for d in documents
+                         if d.metadata.get('file_name') != expectedFile})
+        if others:
+            raise ContextLeakError(f"indexing {expectedFile} also read {', '.join(others)}; nothing was indexed")
+    for doc in documents:
+        doc.metadata['paper_key'] = paperKey
+        for keys in (doc.excluded_embed_metadata_keys, doc.excluded_llm_metadata_keys):
+            if 'paper_key' not in keys:
+                keys.append('paper_key')
+    return documents
 
 def checkCompleteResult(data, questions, qHash):
     """
@@ -1139,12 +1386,14 @@ def countPdfWords(pdfPath):
         print(f"Could not read text from {pdfPath}: {e}")
         return 0
 
-def process_single_paper(row, questions, configPath, input_pdf_folder):
+def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None):
     """
     Process a single paper:
-      - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty.
-      - Reset the database and index store.
-      - Upload and index the corresponding PDF.
+      - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty; `models` (from loadModels)
+        are shared across papers.
+      - persistent_index = True (default): index the PDF only if the persistent index does not already hold it
+        (or if `reindex`), then restrict every search to this paper's chunks, checked by PaperKeyGuard.
+        persistent_index = False: reset the database and index the PDF, as before 0.10.0.
       - Ask every question about the indexed document.
       - Return {pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}.
 
@@ -1162,13 +1411,18 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
     config = Config(configPath)
     individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
 
-    # Instantiate a new screeningAgent for this paper.
-    screeningAgent = ChatbotAgents(configPath=configPath)
+    persistent = bool(config.general.get('persistent_index', True))
+    paperKey = None
+
+    # Instantiate a new screeningAgent for this paper (new memory; the models may be shared).
+    screeningAgent = ChatbotAgents(configPath=configPath, models=models, loop=loop)
+    screeningAgent.persistent = persistent
     try:
         screeningAgent.selectDefaultAgent()
 
-        # Reset the database and clear any uploaded files.
-        screeningAgent.clearFiles()
+        if not persistent:
+            # Reset the database and clear any uploaded files.
+            screeningAgent.clearFiles()
 
         # Build the full path to the PDF file.
         pdf_path = os.path.join(input_pdf_folder, pdf_filename)
@@ -1185,17 +1439,32 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
             print(msg)
             return {paper_id: {"metadata": row, "answers": {"error": msg}}}
 
-        # Upload the PDF file.
-        upload_msg = screeningAgent.uploadFiles([pdf_path])
-        print(upload_msg)
-
-        # Index the uploaded PDF using current vector retrieval settings.
         vectorTopK = screeningAgent.config.retriever['vectortopk']
         cutoffScore = screeningAgent.config.retriever['cutoffscore']
         enableLogging = screeningAgent.config.general['enablelogging']
 
         try:
-            screeningAgent.appendIndex(vectorTopK, cutoffScore)
+            if persistent:
+                # Index the paper only if the persistent index does not already hold it completely, then
+                # restrict every search to its chunks (see computePaperKey and PaperIndexRegistry).
+                paperKey = computePaperKey(pdf_path, config)
+                registry = PaperIndexRegistry(screeningAgent.queryEngine.index.storage)
+                try:
+                    if reindex or not registry.isIndexed(paperKey):
+                        registry.deletePaper(paperKey)   # leftovers of an interrupted or forced indexing
+                        # Read exactly this PDF (not the upload folder, which may hold leftovers of other papers)
+                        screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey, inputFiles=[pdf_path])
+                        nChunks = registry.markIndexed(paperKey, pdf_filename)
+                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey})")
+                    else:
+                        print(f"Reusing the index of {pdf_filename} (key {paperKey})")
+                finally:
+                    registry.close()
+                screeningAgent.setPaper(paperKey)
+            else:
+                # Upload and index the PDF using current vector retrieval settings.
+                print(screeningAgent.uploadFiles([pdf_path]))
+                screeningAgent.appendIndex(vectorTopK, cutoffScore)
         except Exception as e:
             # Indexing calls the LLM (citation extraction). An error that retrying cannot fix
             # (e.g., out of credit) would fail every following paper too, so stop the run.
@@ -1205,19 +1474,20 @@ def process_single_paper(row, questions, configPath, input_pdf_folder):
             print(f"Error indexing PDF: {e}")
             return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
 
+        paperKeyField = {"paper_key": paperKey} if paperKey else {}
         paper_answers = {}
         try:
             failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id)
         except BaseException as e:
             # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
             # result) and re-raise so the caller can stop the run.
-            partial = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers,
+            partial = {"metadata": row, "questionnaire_sha256": qHash, **paperKeyField, "answers": paper_answers,
                        "error": f"{type(e).__name__}: {e}",
                        "answered": f"{len(paper_answers)}/{len(questions)}"}
             save_individual_result(paper_id, partial, individual_output_dir, suffix=".partial")
             raise
 
-        paper_result = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers}
+        paper_result = {"metadata": row, "questionnaire_sha256": qHash, **paperKeyField, "answers": paper_answers}
         stalePartial = os.path.join(individual_output_dir, f"{paper_id}.partial.json")
         if failed:
             paper_result["error"] = f"{failed} of {len(questions)} question(s) could not be answered"
@@ -1266,6 +1536,7 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
     Returns the number of questions that ended with an error.
     """
     failed = 0
+    leakGuard = getattr(screeningAgent, 'leakGuard', None)
     for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
         query = q_text + ANSWER_INSTRUCTIONS
         parsed, raw, lastError = None, None, None
@@ -1284,6 +1555,12 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
                 print(f"{q_key}: attempt {attempt + 1} failed ({lastError})")
                 continue
             print(raw)
+            if leakGuard is not None:
+                violation = leakGuard.consumeViolation()
+                if violation:
+                    lastError = f"context leak: {violation}"
+                    print(f"{q_key}: {lastError}; the answer is discarded.")
+                    break
             parsed = parseAnswer(raw)
             if parsed is not None:
                 break
@@ -1297,11 +1574,12 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
     return failed
 
 
-def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path):
+def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path, reindex=False):
     """
     Screen every paper in the metadata file (csv or xlsx), one after another:
-      - each paper gets a fresh ChatbotAgents instance, which resets the database, uploads and indexes
-        the PDF, and answers every question (see process_single_paper);
+      - each paper gets a fresh ChatbotAgents instance (new memory), which reuses or builds the paper's index
+        and answers every question (see process_single_paper); the LLM and embedding model are loaded once,
+        when the first paper needs processing, and shared by all papers;
       - with `skip_existing = True` in [general], papers with a reusable result in
         <outputDir>/individual/<pdf>.json are loaded instead of processed again (see checkCompleteResult);
       - an unexpected error in one paper is recorded and the run moves on to the next paper;
@@ -1334,6 +1612,8 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         writeJsonAtomic(output_json_path, results)
         print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
 
+    models = None   # loaded once, when the first paper needs processing, and shared by all papers
+    loop = None     # the run's event loop, shared by all papers (the shared models' async clients are bound to it)
     try:
         for i, row in enumerate(rows):
             paperId = row["pdf_filename"]
@@ -1352,7 +1632,11 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
                 print(f"\nThe saved result for {paperId} is not reusable ({reason}); processing the paper again.")
 
             try:
-                result = process_single_paper(row, questions, configPath, input_pdf_folder)
+                if models is None:
+                    models = loadModels(configPath)
+                    loop = asyncio.new_event_loop()
+                result = process_single_paper(row, questions, configPath, input_pdf_folder,
+                                              models=models, reindex=reindex, loop=loop)
             except (NonRetryableApiError, PipelineConfigError) as e:
                 print(f"\nStopped at paper {i+1}/{len(rows)} ({paperId}): {e}\n"
                       f"Answers for this paper so far are in {individualDir}. "
@@ -1370,6 +1654,10 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     finally:
         # Also runs on Ctrl-C and on errors that stop the run, so the combined output is never stale.
         writeCombined()
+        if loop is not None and not loop.is_closed():
+            loop.close()
+        if models is not None:
+            freeModels(*models)
 
     print(f"Processing complete for {len(results)} papers.")
     end_time = time.time()
@@ -1422,6 +1710,8 @@ def parseArgs(argv=None):
     parser = argparse.ArgumentParser(description="Answer a questionnaire for each paper in a metadata file.")
     parser.add_argument('--config', help="Path to the config file (default: FTS_CONFIG, then "
                                          f"{DEFAULT_CONFIG_PATH}, then {LEGACY_CONFIG_PATH}).")
+    parser.add_argument('--reindex', action='store_true',
+                        help="Index every paper of the run again, even if the persistent index already holds it.")
     return parser.parse_args(argv)
 
 
@@ -1464,7 +1754,8 @@ if __name__ == "__main__":
             questions = json.load(f)
 
         # Run the literature screening process.
-        literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path)
+        literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path,
+                             reindex=args.reindex)
 
     except Exception as e:
         logger.error(f"Exception occurred:\n\n {e}", exc_info=True)
