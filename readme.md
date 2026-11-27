@@ -117,6 +117,7 @@ enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
+# workers = 1           # papers processed at once, 1-4 (see "Parallel papers" below)
 ```
 
 ### LLM Model Settings
@@ -262,6 +263,12 @@ The script will:
 - **Before 0.10.0:** `persistent_index = False` wipes the database and indexes the paper again for every paper. That wipe (like the chatbot's "clear") deletes every node, the persistent index included, so do not run it, or an earlier version, while a persistent run is using the same database.
 - **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
+**Parallel papers (`workers` in `[general]`, default 1):**
+- **What it does:** `workers = 2` to `4` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 4 stop the run with a config error.
+- **Shared models:** the LLM client and the embedding model are loaded once and shared by all workers, so a local embedding model uses one GPU and one copy of its weights; embedding calls take turns.
+- **Requires `persistent_index = True`:** with `persistent_index = False` every paper wipes the database the others are searching, so `workers > 1` is refused.
+- **Errors:** an error in one paper is recorded and the other papers go on. An error that stops the run (out of credit, invalid key, setup error) or Ctrl-C lets the papers in progress stop at their next question (saved as `<pdf_filename>.partial.json`), drops the papers not yet started, and writes `outputFile`. A paper waiting for an LLM reply notices only once that reply arrives. Pressing Ctrl-C again during that wait stops at once: the questions in progress are abandoned, those papers may get no `.partial.json`, the models are not freed, and the program exits once each worker's current step returns (an indexing step in progress runs to its end). Rerun with `skip_existing = True` to resume.
+
 ## Output Format
 
 The tool generates a JSON file with the following structure. Results are keyed by `pdf_filename` (versions before 0.9 used the numeric `paper_id`). `QuestionText` is copied from the questionnaire. The model writes `Evidence` and `Reasoning` before `ShortAnswer`, so that it reasons before answering.
@@ -298,7 +305,7 @@ The tool generates a JSON file with the following structure. Results are keyed b
 
 ## Tests
 
-Offline tests cover answer parsing, retries, the context-window lookup, the memory cap, resuming and config resolution. They need no API key, Neo4j or GPU:
+Offline tests cover answer parsing, retries, the context-window lookup, the memory cap, resuming, parallel papers and config resolution. They need no API key, Neo4j or GPU:
 ```bash
 python -m unittest discover -s tests -v
 ```

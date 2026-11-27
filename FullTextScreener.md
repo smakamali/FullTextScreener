@@ -300,20 +300,21 @@ Here are the categories of the imports:
 - **`parseAnswer(text)`** (and the backward-compatible `cleanAndConvertJson(text)`)
     - **Purpose:** Turns the model's reply into `{"Evidence", "Reasoning", "ShortAnswer"}`.
     - **How It Works:** Accepts code fences, text around the JSON object, newlines inside strings, alias key names (`answer`, `justification`, `evidence`) and an answer nested in another object. Returns `None` if no answer can be found (`cleanAndConvertJson` returns the original text instead).
-- **`process_single_paper(row, questions, configPath, input_pdf_folder)`**
+- **`process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None, stopEvent=None)`**
     - **Purpose:** Processes a single research paper:
         - Instantiates a fresh `ChatbotAgents` instance (so the per-paper memory starts empty).
         - Clears any previous data, uploads and indexes the paper's PDF (refusing PDFs without a usable text layer).
-        - Asks every question (`_answerAllQuestions`): a reply that cannot be parsed is asked once more, and a question that still fails is recorded with an `error` key.
+        - Asks every question (`_answerAllQuestions`): a reply that cannot be parsed is asked once more, and a question that still fails is recorded with an `error` key. If `stopEvent` is set, `RunStopped` is raised before the next question; the answers so far are saved in `<pdf>.partial.json` and the error is re-raised.
         - Returns `{pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}`.
     - **Saving:** a complete result goes to `<outputDir>/individual/<pdf>.json`; a paper with failed questions, or one interrupted by an error, goes to `<pdf>.partial.json`. Files are written atomically.
 - **`literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path)`**
-    - **Purpose:** Processes every paper in the metadata file, one after another.
+    - **Purpose:** Processes every paper in the metadata file, one after another, or `workers` at a time.
     - **How It Works:**
         - Reads metadata from a CSV or Excel file.
         - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`) and redoes partial, unreadable or outdated ones.
         - Records an unexpected error in one paper and moves on; stops the run on `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C.
         - Always writes the combined results to `output_json_path`, however the run ends, and logs the processing time.
+        - **`workers > 1`** (`readWorkers`: 1 to 4, and only with `persistent_index = True`; otherwise `PipelineConfigError`): `_screenInParallel` loads the models once, serializes the embedding model's calls with a lock (`serializeEmbedding`), starts one event-loop thread (`LoopThread`) and submits the papers to a `ThreadPoolExecutor`. Results are collected in the main thread as papers finish. On `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C it sets the stop event, cancels the papers not yet started, waits for the running ones to stop at their next question (`RunStopped`, not reported as an error) and re-raises the first run-wide error, or `KeyboardInterrupt`.
 
 ## **Workflow Overview**
 
@@ -400,7 +401,7 @@ Assume we have 4 research papers with unique IDs and corresponding PDF files. Th
     
 2. **Per-Paper Processing:**
     
-    For each paper (handled in a separate process via `multiprocessing`):
+    For each paper (one after another, or up to `workers` papers at once in threads of one process that share the models and one event loop):
     
     - **Initialization:**
         

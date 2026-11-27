@@ -4,10 +4,13 @@ Offline tests for FullTextScreener.py: no API calls, no Neo4j, no models are loa
 Run from the repository root:
     python -m unittest discover -s tests -v
 """
+import contextlib
 import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -127,6 +130,15 @@ class ErrorHandlingTests(unittest.TestCase):
         self.assertEqual(call.call_count, 1)
 
     @mock.patch.object(fts.time, "sleep")
+    def test_cancelled_and_run_stopped_not_retried(self, sleep):
+        for error in (fts.concurrent.futures.CancelledError(), fts.RunStopped("stopping")):
+            call = mock.Mock(side_effect=error)
+            with self.assertRaises(type(error)):
+                fts.safeApiCall(call, enableLogging=False)
+            self.assertEqual(call.call_count, 1)
+        sleep.assert_not_called()
+
+    @mock.patch.object(fts.time, "sleep")
     def test_transient_then_success(self, sleep):
         call = mock.Mock(side_effect=[_httpError(429), _httpError(503), "ok"])
         self.assertEqual(fts.safeApiCall(call, enableLogging=False), "ok")
@@ -231,6 +243,30 @@ class AnswerLoopTests(unittest.TestCase):
         agent = FakeAgent([_httpError(402)])
         with self.assertRaises(fts.NonRetryableApiError):
             fts._answerAllQuestions(agent, {"Q1": "one?"}, {}, enableLogging=False)
+
+    def test_cancelled_call_raises_run_stopped(self, sleep):
+        agent = FakeAgent([fts.concurrent.futures.CancelledError(), GOOD])
+        answers = {}
+        with self.assertRaises(fts.RunStopped):
+            fts._answerAllQuestions(agent, {"Q1": "one?", "Q2": "two?"}, answers, enableLogging=False)
+        self.assertEqual(answers, {})
+        self.assertEqual(len(agent.queries), 1)
+
+    def test_stop_event_raises_run_stopped(self, sleep):
+        stop = threading.Event()
+
+        class StoppingAgent(FakeAgent):
+            def chatbot(self, queryStr, history):
+                reply = super().chatbot(queryStr, history)
+                stop.set()   # set after question 1, so it is seen before question 2
+                return reply
+        agent = StoppingAgent([GOOD, GOOD])
+        answers = {}
+        with self.assertRaises(fts.RunStopped):
+            fts._answerAllQuestions(agent, {"Q1": "one?", "Q2": "two?"}, answers, enableLogging=False,
+                                    stopEvent=stop)
+        self.assertEqual(list(answers), ["Q1"])
+        self.assertEqual(len(agent.queries), 1)
 
 
 class ResumeTests(unittest.TestCase):
@@ -349,6 +385,245 @@ class ResumeTests(unittest.TestCase):
             data = json.load(f)
         self.assertIn("error", data["a.pdf"]["answers"])
         self.assertNotIn("error", data["b.pdf"]["answers"])
+
+
+class ParallelRunTests(unittest.TestCase):
+    """literature_screening with workers > 1 (process_single_paper, loadModels and freeModels are fakes)."""
+    QUESTIONS = {"Q1": "one?", "Q2": "two?"}
+    N = 7
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.tmp.name
+        self.individual = os.path.join(root, "output", "individual")
+        os.makedirs(self.individual)
+        self.output = os.path.join(root, "output", "output.json")
+        self.metadata = os.path.join(root, "metadata.csv")
+        self.names = [f"p{i}.pdf" for i in range(1, self.N + 1)]
+        self.writeMetadata(self.names)
+        self.config = self.writeConfig("workers = 3\npersistent_index = True\n")
+        self.hash = fts.questionnaireHash(self.QUESTIONS)
+        self.lock = threading.Lock()
+        self.calls = []
+        self.stopSeen = {}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def writeMetadata(self, names):
+        with open(self.metadata, "w", encoding="utf-8") as f:
+            f.write("paper_id,pdf_filename,title\n")
+            for i, name in enumerate(names, 1):
+                f.write(f"{i},{name},T{i}\n")
+
+    def writeConfig(self, general):
+        path = os.path.join(self.tmp.name, "test.cfg")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"[general]\nskip_existing = True\n{general}"
+                    f"[dir-structure]\noutputDir = {os.path.join(self.tmp.name, 'output')}\n")
+        return path
+
+    def complete(self):
+        answers = {q: {"QuestionText": t, "Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"}
+                   for q, t in self.QUESTIONS.items()}
+        return {"metadata": {}, "questionnaire_sha256": self.hash, "answers": answers}
+
+    def record(self, row, models, loop, stopEvent):
+        with self.lock:
+            self.calls.append(row["pdf_filename"])
+            self.argsOk.append(models is self.models and loop is not None and loop.is_running()
+                               and stopEvent is not None)
+
+    def sleeper(self, row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+        self.record(row, models, loop, stopEvent)
+        time.sleep(0.05)
+        return {row["pdf_filename"]: self.complete()}
+
+    def waitForStop(self, row, stopEvent):
+        """Loop until the stop event is set (at most 5 s, so a broken test cannot hang), then stop."""
+        deadline = time.monotonic() + 5
+        while not stopEvent.wait(0.01):
+            if time.monotonic() > deadline:
+                with self.lock:
+                    self.stopSeen[row["pdf_filename"]] = False
+                return {row["pdf_filename"]: self.complete()}
+        with self.lock:
+            self.stopSeen[row["pdf_filename"]] = True
+        raise fts.RunStopped("stopped")
+
+    def run_screening(self, fake, extraPatches=()):
+        self.embed = types.SimpleNamespace()
+        self.models = ("llm", self.embed)
+        self.argsOk = []
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(fts, "process_single_paper", side_effect=fake))
+            self.loadModels = stack.enter_context(mock.patch.object(fts, "loadModels", return_value=self.models))
+            self.freeModels = stack.enter_context(mock.patch.object(fts, "freeModels"))
+            self.close = stack.enter_context(
+                mock.patch.object(fts.LoopThread, "close", autospec=True, side_effect=fts.LoopThread.close))
+            for p in extraPatches:
+                stack.enter_context(p)
+            try:
+                fts.literature_screening(self.metadata, self.QUESTIONS, self.config, "pdfs", self.output)
+            finally:
+                # every worker got the shared models, the LoopThread's loop and the stop event
+                self.assertTrue(all(self.argsOk), self.argsOk)
+
+    def combined(self):
+        with open(self.output, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_all_papers_processed_once(self):
+        start = time.monotonic()
+        self.run_screening(self.sleeper)
+        elapsed = time.monotonic() - start
+        self.assertEqual(sorted(self.calls), sorted(self.names))
+        self.assertEqual(len(self.combined()), self.N)
+        self.assertLess(elapsed, 0.30)   # one after another would take 7 x 0.05 = 0.35 s
+        self.loadModels.assert_called_once_with(self.config)
+        self.assertTrue(getattr(self.embed, "_fts_serialized", False))
+        self.freeModels.assert_called_once_with(*self.models)
+        self.close.assert_called_once()
+
+    def test_skip_existing_respected(self):
+        for name in self.names[:2]:
+            with open(os.path.join(self.individual, f"{name}.json"), "w", encoding="utf-8") as f:
+                json.dump(self.complete(), f)
+        self.writeMetadata(self.names[:5])
+        self.run_screening(self.sleeper)
+        self.assertEqual(sorted(self.calls), self.names[2:5])
+        self.assertEqual(sorted(self.combined()), self.names[:5])
+
+    def test_no_models_loaded_when_all_skipped(self):
+        for name in self.names:
+            with open(os.path.join(self.individual, f"{name}.json"), "w", encoding="utf-8") as f:
+                json.dump(self.complete(), f)
+        self.run_screening(self.sleeper)
+        self.assertEqual(self.calls, [])
+        self.loadModels.assert_not_called()
+        self.close.assert_not_called()
+        self.assertEqual(len(self.combined()), self.N)
+
+    def test_one_paper_error_does_not_stop_run(self):
+        def fake(row, *args, **kwargs):
+            if row["pdf_filename"] == "p2.pdf":
+                raise ValueError("broken paper")
+            return self.sleeper(row, *args, **kwargs)
+        self.run_screening(fake)
+        data = self.combined()
+        self.assertEqual(sorted(data), sorted(self.names))
+        self.assertTrue(data["p2.pdf"]["answers"]["error"].startswith("ValueError"))
+        for name in self.names:
+            if name != "p2.pdf":
+                self.assertNotIn("error", data[name]["answers"])
+
+    def test_non_retryable_stops_all(self):
+        def fake(row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            if row["pdf_filename"] == "p1.pdf":
+                time.sleep(0.05)
+                raise fts.NonRetryableApiError(402, "x")
+            return self.waitForStop(row, stopEvent)
+        with self.assertRaises(fts.NonRetryableApiError):
+            self.run_screening(fake)
+        self.assertEqual(sorted(self.calls), ["p1.pdf", "p2.pdf", "p3.pdf"])   # p4..p7 never started
+        self.assertEqual(self.stopSeen, {"p2.pdf": True, "p3.pdf": True})
+        self.assertTrue(os.path.exists(self.output))
+        self.assertEqual(self.combined(), {})   # papers stopped by RunStopped are not reported as errors
+        self.close.assert_called_once()
+        self.freeModels.assert_called_once_with(*self.models)
+
+    def test_keyboard_interrupt_stops_all(self):
+        threeStarted = threading.Event()
+
+        def fake(row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            with self.lock:
+                if len(self.calls) == 3:
+                    threeStarted.set()
+            return self.waitForStop(row, stopEvent)
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_screening(fake, [self.interruptWait(lambda fs: threeStarted.wait(5))])
+        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(self.stopSeen, {name: True for name in self.calls})
+        self.close.assert_called_once()
+        self.assertTrue(os.path.exists(self.output))
+        self.freeModels.assert_called_once_with(*self.models)
+
+    def interruptWait(self, beforeInterrupt, times=1):
+        """Patch concurrent.futures.wait (which the main thread polls) so that its first `times` calls raise
+        KeyboardInterrupt, after `beforeInterrupt(fs)` returns; later calls are the real wait."""
+        realWait = fts.concurrent.futures.wait
+        count = [0]
+
+        def interruptingWait(fs, timeout=None, return_when=fts.concurrent.futures.ALL_COMPLETED):
+            if threading.current_thread() is threading.main_thread() and count[0] < times:
+                count[0] += 1
+                beforeInterrupt(fs)
+                raise KeyboardInterrupt
+            return realWait(fs, timeout=timeout, return_when=return_when)
+        return mock.patch.object(fts.concurrent.futures, "wait", interruptingWait)
+
+    def test_interrupt_keeps_finished_papers(self):
+        """Papers that finished (or failed) before Ctrl-C but were not collected yet still reach the output."""
+        def fake(row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            if row["pdf_filename"] == "p1.pdf":
+                return {"p1.pdf": self.complete()}
+            if row["pdf_filename"] == "p2.pdf":
+                raise ValueError("broken paper")
+            return self.waitForStop(row, stopEvent)
+
+        def twoDone(fs):
+            deadline = time.monotonic() + 5
+            while sum(f.done() for f in fs) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_screening(fake, [self.interruptWait(twoDone)])
+        data = self.combined()
+        self.assertEqual(sorted(data), ["p1.pdf", "p2.pdf"])
+        self.assertNotIn("error", data["p1.pdf"]["answers"])
+        self.assertTrue(data["p2.pdf"]["answers"]["error"].startswith("ValueError"))
+        self.freeModels.assert_called_once_with(*self.models)
+
+    def test_second_interrupt_skips_free_models(self):
+        """A second Ctrl-C while waiting for the running papers: the loop thread is closed, but the models
+        are not freed under workers that are still running."""
+        threeStarted = threading.Event()
+        release = threading.Event()
+
+        def fake(row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            with self.lock:
+                if len(self.calls) == 3:
+                    threeStarted.set()
+            release.wait(5)   # still busy when the second Ctrl-C comes
+            return self.waitForStop(row, stopEvent)
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_screening(fake, [self.interruptWait(lambda fs: threeStarted.wait(5), times=2)])
+            self.close.assert_called_once()
+            self.freeModels.assert_not_called()
+            self.assertTrue(os.path.exists(self.output))
+        finally:
+            release.set()
+            deadline = time.monotonic() + 5
+            while len(self.stopSeen) < len(self.calls) and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+    def test_workers_requires_persistent(self):
+        path = self.writeConfig("workers = 2\npersistent_index = False\n")
+        with self.assertRaises(fts.PipelineConfigError):
+            fts.readWorkers(fts.Config(path))
+
+    def test_workers_bounds(self):
+        for value in ("0", "5", "two", "2.5"):
+            path = self.writeConfig(f"workers = {value}\n")
+            with self.assertRaises(fts.PipelineConfigError, msg=value):
+                fts.readWorkers(fts.Config(path))
+        self.assertEqual(fts.readWorkers(fts.Config(self.writeConfig(""))), 1)
+        self.assertEqual(fts.readWorkers(fts.Config(self.writeConfig("workers = 4\n"))), 4)
 
 
 class ConfigResolutionTests(unittest.TestCase):
@@ -751,7 +1026,10 @@ class PersistentFlowTests(unittest.TestCase):
         self.agent = self.agentClass.return_value
         self.agent.embedModel = types.SimpleNamespace()   # no _fts_precision: the CPU default
 
-    def fakeAnswers(self, agent, questions, answers, enableLogging, paperId=""):
+    def fakeAnswers(self, agent, questions, answers, enableLogging, paperId="", stopEvent=None):
+        self.stopEventsSeen = getattr(self, "stopEventsSeen", []) + [stopEvent]
+        if stopEvent is not None and stopEvent.is_set():
+            raise fts.RunStopped("stopped")
         for q, t in questions.items():
             answers[q] = {"QuestionText": t, "Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"}
         return 0
@@ -786,6 +1064,18 @@ class PersistentFlowTests(unittest.TestCase):
         self.agent.uploadFiles.assert_not_called()
         self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("inputFiles"), [os.path.join(self.pdfs, "a.pdf")])
         self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"), loop=None)
+
+    def test_run_stopped_saves_partial_and_is_raised(self):
+        stop = threading.Event()
+        stop.set()
+        with self.assertRaises(fts.RunStopped):
+            fts.process_single_paper({"paper_id": "1", "pdf_filename": "a.pdf"}, self.QUESTIONS, self.config(),
+                                     self.pdfs, models=("llm", "embed"), stopEvent=stop)
+        self.assertEqual(self.stopEventsSeen, [stop])
+        individual = os.path.join(self.outputDir, "individual")
+        self.assertFalse(os.path.exists(os.path.join(individual, "a.pdf.json")))
+        with open(os.path.join(individual, "a.pdf.partial.json"), encoding="utf-8") as f:
+            self.assertTrue(json.load(f)["error"].startswith("RunStopped"))
 
     def test_indexed_paper_skips_indexing(self):
         FakeRegistry.indexed.add(self.key("a.pdf"))
@@ -994,6 +1284,30 @@ class EventLoopAndConfigTests(unittest.TestCase):
         self.assertEqual(results, {0: 0, 1: 1, 2: 2, 3: 3})
         self.assertLess(elapsed, 0.18)
         self.assertTrue(lt.loop.is_closed())
+
+    def test_run_on_closed_loop_thread_raises(self):
+        lt = fts.LoopThread()
+        self.assertTrue(lt.close())
+        factory = mock.Mock()
+        with self.assertRaises(fts.RunStopped):
+            fts.runOnLoop(lt.loop, factory)
+        factory.assert_not_called()
+
+    def test_run_on_closing_loop_thread_raises(self):
+        """Between loop.stop() and loop.close() the loop is neither running nor closed: never run it here."""
+        lt = fts.LoopThread()
+        try:
+            lt.closing = True
+            lt.loop.call_soon_threadsafe(lt.loop.stop)
+            lt.thread.join(5)
+            self.assertFalse(lt.loop.is_running())
+            self.assertFalse(lt.loop.is_closed())
+            factory = mock.Mock()
+            with self.assertRaises(fts.RunStopped):
+                fts.runOnLoop(lt.loop, factory)
+            factory.assert_not_called()
+        finally:
+            lt.loop.close()
 
     def test_close_releases_blocked_callers(self):
         import asyncio, threading
