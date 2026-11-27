@@ -47,6 +47,8 @@ from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, Filt
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.bridge.pydantic import PrivateAttr
 import asyncio
+import threading
+import concurrent.futures
 
 # Append the root directory to path so that the modules can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -188,6 +190,32 @@ NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404}
 class PipelineConfigError(Exception):
     """A setup problem that affects every paper (bad config, unknown model); the run stops at once."""
 
+class RunStopped(Exception):
+    """The run is stopping (another paper hit a run-wide error, or Ctrl-C): this paper ends at its next question."""
+
+MAX_WORKERS = 10
+DEFAULT_API_MAX_ATTEMPTS = 15
+
+def readWorkers(config):
+    """`workers` in [general]: how many papers are processed at once (1-10, default 1). Several workers need
+    persistent_index = True (without it, each paper wipes the database the other papers are searching)."""
+    workers = config.general.get('workers', 1)
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+        raise PipelineConfigError(f"workers in [general] must be a whole number from 1 to {MAX_WORKERS}, not {workers!r}.")
+    if workers > 1 and not bool(config.general.get('persistent_index', True)):
+        raise PipelineConfigError(
+            f"workers = {workers} needs persistent_index = True in [general]: with persistent_index = False each "
+            f"paper wipes the database the other papers are searching. Set workers = 1 or persistent_index = True.")
+    return workers
+
+def readApiMaxAttempts(config):
+    """`api_max_attempts` in [general]: how often one failed API call is tried in total before the question
+    counts as failed (whole number >= 1, default 15; the waits between attempts add up to about 9 minutes)."""
+    attempts = config.general.get('api_max_attempts', DEFAULT_API_MAX_ATTEMPTS)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        raise PipelineConfigError(f"api_max_attempts in [general] must be a whole number of at least 1, not {attempts!r}.")
+    return attempts
+
 class AgentStepLimitError(Exception):
     """The ReAct agent reached `max_iterations` without producing a final answer."""
 
@@ -220,11 +248,15 @@ def getHttpStatus(error):
         error = error.__cause__ or error.__context__
     return None
 
-def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs):
+def safeApiCall(call, enableLogging, *args, maxAttempts=DEFAULT_API_MAX_ATTEMPTS, maxWait=60, stopEvent=None, **kwargs):
     """
     Call `call(*args, **kwargs)`, retrying transient failures with capped exponential backoff
-    (1, 2, 4, ... seconds, at most `maxWait` each). Errors that retrying cannot fix
-    (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately.
+    with jitter: a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` (so parallel workers do not retry in
+    step); there is no wait after the last attempt. Errors that retrying cannot fix
+    (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately. A cancelled call
+    (concurrent.futures.CancelledError: the event-loop thread is shutting down) and RunStopped are
+    re-raised at once. `stopEvent` (a threading.Event, optional): once it is set, a failed call is not
+    retried and the backoff wait ends early; RunStopped is raised instead.
     """
     lastError = None
     for attempt in range(maxAttempts):
@@ -236,6 +268,8 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)
                 log_str = f"API call successful. Duration: {endTime - startTime:.2f} seconds."
                 logging.info(log_str)
             return result
+        except (concurrent.futures.CancelledError, RunStopped):
+            raise
         except Exception as e:
             status = getHttpStatus(e)
             if status in NON_RETRYABLE_STATUS:
@@ -248,12 +282,19 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)
                 # would mostly repeat the same loop, so hand it back to the caller, which may ask once more.
                 raise AgentStepLimitError(str(e)) from e
             lastError = e
-            wait = min(2 ** attempt, maxWait) + random.random()
+            if stopEvent is not None and stopEvent.is_set():
+                raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
+            if attempt == maxAttempts - 1:
+                break   # the last attempt failed: no point in waiting, raise below
+            wait = min(2 ** attempt, maxWait) * random.uniform(0.5, 1.0)
             if enableLogging:
                 log_str = f"Error occurred (attempt {attempt + 1}/{maxAttempts}): {e}. Waiting for {wait:.2f} seconds."
                 logging.warning(log_str)
                 print(log_str)
-            time.sleep(wait)
+            if stopEvent is None:
+                time.sleep(wait)
+            elif stopEvent.wait(wait):
+                raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
     raise Exception(f"API call failed after {maxAttempts} attempts; last error: {lastError}")
 
 ################################ File Management ################################
@@ -693,6 +734,106 @@ def freeModels(llm, embedModel):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+
+class LoopThread:
+    """A daemon thread running one asyncio event loop, shared by all paper workers."""
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        self.closing = False   # set by close(); runOnLoop then refuses to use the loop
+        self.loop._ftsLoopThread = self
+        started = threading.Event()
+        def _run():
+            asyncio.set_event_loop(self.loop)
+            self.loop.call_soon(started.set)
+            self.loop.run_forever()
+        self.thread = threading.Thread(target=_run, name="fts-event-loop", daemon=True)
+        self.thread.start()
+        started.wait()
+
+    def close(self, timeout=10):
+        """Cancel pending tasks (so threads blocked in runOnLoop get CancelledError instead of
+        hanging), stop the loop, join the thread and close the loop. Returns True on a clean exit."""
+        self.closing = True
+        if self.loop.is_closed():
+            return True
+        if self.loop.is_running():
+            async def _shutdown():
+                current = asyncio.current_task()
+                tasks = [t for t in asyncio.all_tasks() if t is not current]
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                try:
+                    await self.loop.shutdown_asyncgens()
+                finally:
+                    self.loop.stop()
+            self.loop.call_soon_threadsafe(lambda: self.loop.create_task(_shutdown()))
+        self.thread.join(timeout)
+        if self.thread.is_alive():
+            logging.warning("Event-loop thread did not exit within %s s", timeout)
+            return False
+        self.loop.close()
+        return True
+
+def runOnLoop(loop, coroFactory):
+    """Run a coroutine to completion on `loop`: submitted thread-safely when another thread
+    runs the loop, otherwise with run_until_complete (the single-threaded behaviour).
+    The loop of a LoopThread that is closing or closed is never used (not even run from this thread):
+    RunStopped is raised at once, and also when the loop stops (closing) before running a submitted call."""
+    owner = getattr(loop, '_ftsLoopThread', None)
+    if owner is not None and (owner.closing or loop.is_closed()):
+        raise RunStopped("the event-loop thread is shutting down")
+    if loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coroFactory(), loop)
+        try:
+            # poll, so Ctrl-C stays deliverable on Windows (an untimed wait is not interruptible there)
+            while not future.done():
+                concurrent.futures.wait([future], timeout=0.5)
+                if (owner is not None and owner.closing and not loop.is_running()
+                        and not future.done()):
+                    # submitted after close() cancelled the pending tasks: the loop stopped without running it
+                    future.cancel()
+                    raise RunStopped("the event-loop thread shut down before this call ran")
+            return future.result()
+        except BaseException:
+            future.cancel()
+            raise
+    return loop.run_until_complete(coroFactory())
+
+def serializeEmbedding(embedModel, lock):
+    """Make one embedding model safe to share between threads: every embedding call holds `lock`, which must
+    be reentrant (threading.RLock): a locked batch method may call the locked single-text method.
+    The async methods run the (locked) synchronous method in a worker thread, so waiting for the
+    lock never blocks the event-loop thread. Idempotent."""
+    if getattr(embedModel, '_fts_serialized', False):
+        return
+    def lockedSync(original):
+        def wrapper(*args, **kwargs):
+            with lock:
+                return original(*args, **kwargs)
+        wrapper.__name__ = getattr(original, '__name__', 'wrapper')
+        return wrapper
+    syncNames = ['_get_query_embedding', '_get_text_embedding', '_get_text_embeddings']
+    originals = {n: getattr(embedModel, n) for n in syncNames + ['_aget_query_embedding', '_aget_text_embedding']
+                 if hasattr(embedModel, n)}
+    wrapped = {n: lockedSync(originals[n]) for n in syncNames if n in originals}
+    for name, fn in wrapped.items():
+        object.__setattr__(embedModel, name, fn)
+    for name in ('_aget_query_embedding', '_aget_text_embedding'):
+        if name not in originals:
+            continue
+        syncFn = wrapped.get(name.replace('_aget_', '_get_'))
+        if syncFn is None:
+            # no synchronous counterpart: drive the original coroutine in a private loop, under the lock
+            asyncOriginal = originals[name]
+            def syncFn(*args, _orig=asyncOriginal, **kwargs):
+                with lock:
+                    return asyncio.run(_orig(*args, **kwargs))
+        async def asyncWrapper(*args, _fn=syncFn, **kwargs):
+            return await asyncio.to_thread(_fn, *args, **kwargs)
+        object.__setattr__(embedModel, name, asyncWrapper)
+    object.__setattr__(embedModel, '_fts_serialized', True)
+
 ################################ Chatbot Agents ################################
 
 class ChatbotAgents:
@@ -811,7 +952,8 @@ class ChatbotAgents:
             self.embedModel = HuggingFaceEmbedding(
                 model_name=self.embeddingModelName, 
                 max_length=self.embedMaxLength,
-                trust_remote_code=True
+                trust_remote_code=True,
+                device='cpu',   # the index key records cpu-fp32 for this model (embeddingPrecision)
             )
 
 
@@ -847,7 +989,8 @@ class ChatbotAgents:
         self.embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName, 
             max_length=self.embedMaxLength,
-            trust_remote_code=True
+            trust_remote_code=True,
+            device='cpu',   # the index key records cpu-fp32 for this model (embeddingPrecision)
         )
 
     def getOpenRouterLlmAndEmbedding(self):
@@ -929,9 +1072,10 @@ class ChatbotAgents:
                     device='cuda',
                     model_kwargs=modelKwargs,
                 )
+                precision = 'cuda-fp32' if quantization == 'none' else f'cuda-{quantization}'
+                object.__setattr__(embedModel, '_fts_precision', precision)
                 print(f"Embedding model {self.embeddingModelName} loaded on GPU "
-                      f"({torch.cuda.get_device_name(0)}), precision: "
-                      f"{'fp32' if quantization == 'none' else quantization}.")
+                      f"({torch.cuda.get_device_name(0)}), precision: {precision}.")
                 return embedModel
             except Exception as e:
                 print(f"Could not load the embedding model on the GPU ({type(e).__name__}: {e}); "
@@ -945,7 +1089,8 @@ class ChatbotAgents:
             trust_remote_code=True,
             device='cpu',
         )
-        print(f"Embedding model {self.embeddingModelName} loaded on CPU, precision: fp32.")
+        object.__setattr__(embedModel, '_fts_precision', 'cpu-fp32')
+        print(f"Embedding model {self.embeddingModelName} loaded on CPU, precision: cpu-fp32.")
         return embedModel
 
         
@@ -1035,7 +1180,7 @@ class ChatbotAgents:
             # its question or partial reasoning behind; a retry then starts from a clean history.
             memorySnapshot = list(self.memory.get_all())
             try:
-                agentOutput = self._loop.run_until_complete(_run())
+                agentOutput = runOnLoop(self._loop, _run)
             except BaseException:
                 self.memory.set(memorySnapshot)
                 raise
@@ -1311,11 +1456,20 @@ def questionnaireHash(questions):
 # Bump whenever the PDF reader or the chunking code changes, so that every paper is indexed again.
 READER_VERSION = "1"
 
-def computePaperKey(pdfPath, config):
+def embeddingPrecision(embedModel):
+    """
+    What the embedding model actually loaded as: 'cuda-8bit', 'cuda-4bit', 'cuda-fp16', 'cuda-fp32' or 'cpu-fp32'.
+    buildHuggingFaceEmbedding records it on the model; a model without it counts as the CPU default.
+    """
+    return getattr(embedModel, '_fts_precision', 'cpu-fp32')
+
+def computePaperKey(pdfPath, config, embedPrecision='cpu-fp32'):
     """
     The key that identifies a paper's chunks in the persistent index: a fingerprint of the PDF's bytes and of
     every setting that changes how it is chunked or embedded. The file name is not part of it, so a renamed
     copy reuses the index; a replaced PDF or changed settings get a new key, and so a fresh index.
+    The embedding precision is part of it, except for the CPU default (fp32), so that keys made before
+    the precision existed stay valid.
     """
     nodeParser = config.nodeparser
     service = config.llm_model['service']
@@ -1328,6 +1482,8 @@ def computePaperKey(pdfPath, config):
         "embed_model": config.dict[service].get('embed_model'),
         "reader_version": READER_VERSION,
     }
+    if embedPrecision != 'cpu-fp32':
+        settings["embed_precision"] = embedPrecision
     digest = hashlib.sha256()
     with open(pdfPath, "rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
@@ -1386,7 +1542,8 @@ def countPdfWords(pdfPath):
         print(f"Could not read text from {pdfPath}: {e}")
         return 0
 
-def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None):
+def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None,
+                         stopEvent=None):
     """
     Process a single paper:
       - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty; `models` (from loadModels)
@@ -1401,7 +1558,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
 
     Saving: a complete result goes to <outputDir>/individual/<pdf>.json. A paper with failed questions,
     or one interrupted by an error, goes to <pdf>.partial.json instead, so a resumed run redoes it.
-    NonRetryableApiError, PipelineConfigError and KeyboardInterrupt are re-raised after saving.
+    NonRetryableApiError, PipelineConfigError and KeyboardInterrupt are re-raised after saving, and so is
+    RunStopped, raised before the next question once `stopEvent` (a threading.Event) is set.
     """
     paper_id = row["pdf_filename"]
     pdf_filename = row.get("pdf_filename", f"{paper_id}.pdf")
@@ -1447,7 +1605,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
             if persistent:
                 # Index the paper only if the persistent index does not already hold it completely, then
                 # restrict every search to its chunks (see computePaperKey and PaperIndexRegistry).
-                paperKey = computePaperKey(pdf_path, config)
+                precision = embeddingPrecision(screeningAgent.embedModel)
+                paperKey = computePaperKey(pdf_path, config, precision)
                 registry = PaperIndexRegistry(screeningAgent.queryEngine.index.storage)
                 try:
                     if reindex or not registry.isIndexed(paperKey):
@@ -1455,9 +1614,9 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
                         # Read exactly this PDF (not the upload folder, which may hold leftovers of other papers)
                         screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey, inputFiles=[pdf_path])
                         nChunks = registry.markIndexed(paperKey, pdf_filename)
-                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey})")
+                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey}, embeddings {precision})")
                     else:
-                        print(f"Reusing the index of {pdf_filename} (key {paperKey})")
+                        print(f"Reusing the index of {pdf_filename} (key {paperKey}, embeddings {precision})")
                 finally:
                     registry.close()
                 screeningAgent.setPaper(paperKey)
@@ -1465,6 +1624,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
                 # Upload and index the PDF using current vector retrieval settings.
                 print(screeningAgent.uploadFiles([pdf_path]))
                 screeningAgent.appendIndex(vectorTopK, cutoffScore)
+        except RunStopped:
+            raise
         except Exception as e:
             # Indexing calls the LLM (citation extraction). An error that retrying cannot fix
             # (e.g., out of credit) would fail every following paper too, so stop the run.
@@ -1477,7 +1638,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
         paperKeyField = {"paper_key": paperKey} if paperKey else {}
         paper_answers = {}
         try:
-            failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id)
+            failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id,
+                                         stopEvent=stopEvent, apiMaxAttempts=readApiMaxAttempts(config))
         except BaseException as e:
             # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
             # result) and re-raise so the caller can stop the run.
@@ -1526,18 +1688,22 @@ def _errorAnswer(q_text, message, raw=None):
         answer["raw"] = raw
     return answer
 
-def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id=""):
+def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id="", stopEvent=None,
+                       apiMaxAttempts=DEFAULT_API_MAX_ATTEMPTS):
     """
     Ask every question for the current paper, filling `paper_answers` as answers arrive.
 
     A question whose reply cannot be parsed is asked once more with a reminder of the format. A question
     that still fails, or whose API calls keep failing, gets an answer with an "error" key and the run moves
     on to the next question. Only errors that retrying cannot fix (NonRetryableApiError) end the paper.
+    If `stopEvent` is set, RunStopped is raised before the next question.
     Returns the number of questions that ended with an error.
     """
     failed = 0
     leakGuard = getattr(screeningAgent, 'leakGuard', None)
     for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
+        if stopEvent is not None and stopEvent.is_set():
+            raise RunStopped(f"the run is stopping; {len(paper_answers)} of {len(questions)} question(s) answered")
         query = q_text + ANSWER_INSTRUCTIONS
         parsed, raw, lastError = None, None, None
         for attempt in range(2):
@@ -1546,10 +1712,15 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
                     screeningAgent.chatbot,
                     enableLogging=enableLogging,
                     queryStr=query if attempt == 0 else query + JSON_REMINDER,
-                    history=None
+                    history=None,
+                    stopEvent=stopEvent,
+                    maxAttempts=apiMaxAttempts,
                 )
-            except NonRetryableApiError:
+            except (NonRetryableApiError, RunStopped):
                 raise
+            except concurrent.futures.CancelledError as e:
+                # the event-loop thread cancelled the call: the run is stopping, do not ask again
+                raise RunStopped("the question was cancelled because the run is stopping") from e
             except Exception as e:
                 lastError = f"{type(e).__name__}: {e}"
                 print(f"{q_key}: attempt {attempt + 1} failed ({lastError})")
@@ -1576,7 +1747,8 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
 
 def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path, reindex=False):
     """
-    Screen every paper in the metadata file (csv or xlsx), one after another:
+    Screen every paper in the metadata file (csv or xlsx), one after another, or `workers` at a time
+    (`workers` in [general], see _screenInParallel):
       - each paper gets a fresh ChatbotAgents instance (new memory), which reuses or builds the paper's index
         and answers every question (see process_single_paper); the LLM and embedding model are loaded once,
         when the first paper needs processing, and shared by all papers;
@@ -1604,32 +1776,32 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         raise ValueError(f"Unsupported file type: {metadata_file_path}")
 
     config = Config(configPath)
+    workers = readWorkers(config)
+    readApiMaxAttempts(config)   # fail at once on a bad value, before any paper is processed
     skipExisting = bool(config.general.get('skip_existing', False))
     individualDir = os.path.join(config.dir_structure['outputdir'], 'individual')
     qHash = questionnaireHash(questions)
 
     def writeCombined():
-        writeJsonAtomic(output_json_path, results)
+        # in metadata order (with workers > 1, papers finish in any order); anything else afterwards
+        ordered = {row["pdf_filename"]: results[row["pdf_filename"]] for row in rows if row["pdf_filename"] in results}
+        ordered.update((k, v) for k, v in results.items() if k not in ordered)
+        writeJsonAtomic(output_json_path, ordered)
         print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
+
+    if workers > 1:
+        _screenInParallel(rows, questions, configPath, input_pdf_folder, results, writeCombined, workers,
+                          reindex, skipExisting, individualDir, qHash)
+        _printRunSummary(results, rows, start_time)
+        return
 
     models = None   # loaded once, when the first paper needs processing, and shared by all papers
     loop = None     # the run's event loop, shared by all papers (the shared models' async clients are bound to it)
     try:
         for i, row in enumerate(rows):
             paperId = row["pdf_filename"]
-            existing = os.path.join(individualDir, f"{paperId}.json")
-            if skipExisting and os.path.exists(existing):
-                try:
-                    with open(existing, encoding="utf-8") as f:
-                        data = json.load(f)
-                    reusable, reason = checkCompleteResult(data, questions, qHash)
-                except (OSError, ValueError) as e:
-                    reusable, reason = False, f"it cannot be read ({e})"
-                if reusable:
-                    results[paperId] = data
-                    print(f"\nSkipping paper {i+1}/{len(rows)} (already processed): {paperId}")
-                    continue
-                print(f"\nThe saved result for {paperId} is not reusable ({reason}); processing the paper again.")
+            if skipExisting and _skipIfReusable(row, i, len(rows), individualDir, questions, qHash, results):
+                continue
 
             try:
                 if models is None:
@@ -1644,10 +1816,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
                 raise
             except Exception as e:
                 # An unexpected problem with this paper only: record it and go on with the next paper.
-                logging.error(f"Paper {paperId} failed", exc_info=True)
-                print(f"\nPaper {i+1}/{len(rows)} ({paperId}) failed: {type(e).__name__}: {e}. "
-                      f"Continuing with the next paper.")
-                results[paperId] = {"metadata": row, "answers": {"error": f"{type(e).__name__}: {e}"}}
+                _recordPaperError(results, row, e, f"{i+1}/{len(rows)} ({paperId})", "Continuing with the next paper.")
                 continue
             results.update(result)
             print(f"\nProcessing completed for paper {i+1}/{len(rows)}.")
@@ -1659,6 +1828,10 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         if models is not None:
             freeModels(*models)
 
+    _printRunSummary(results, rows, start_time)
+
+
+def _printRunSummary(results, rows, start_time):
     print(f"Processing complete for {len(results)} papers.")
     end_time = time.time()
     total_time = end_time - start_time
@@ -1666,6 +1839,160 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
 
     print(f"Total processing time: {total_time:.2f} seconds")
     print(f"Average time per paper: {avg_time_per_paper:.2f} seconds")
+
+
+def _skipIfReusable(row, i, total, individualDir, questions, qHash, results):
+    """skip_existing: if <individualDir>/<pdf>.json is a reusable complete result (checkCompleteResult),
+    put it in `results` and return True; otherwise return False (saying why a saved result is not reused)."""
+    paperId = row["pdf_filename"]
+    existing = os.path.join(individualDir, f"{paperId}.json")
+    if not os.path.exists(existing):
+        return False
+    try:
+        with open(existing, encoding="utf-8") as f:
+            data = json.load(f)
+        reusable, reason = checkCompleteResult(data, questions, qHash)
+    except (OSError, ValueError) as e:
+        reusable, reason = False, f"it cannot be read ({e})"
+    if reusable:
+        results[paperId] = data
+        print(f"\nSkipping paper {i+1}/{total} (already processed): {paperId}")
+        return True
+    print(f"\nThe saved result for {paperId} is not reusable ({reason}); processing the paper again.")
+    return False
+
+
+def _recordPaperError(results, row, error, label, nextStep):
+    """An unexpected problem with one paper only: log it and record it in `results` as answers.error."""
+    paperId = row["pdf_filename"]
+    logging.error(f"Paper {paperId} failed", exc_info=(type(error), error, error.__traceback__))
+    print(f"\nPaper {label} failed: {type(error).__name__}: {error}. {nextStep}")
+    results[paperId] = {"metadata": row, "answers": {"error": f"{type(error).__name__}: {error}"}}
+
+
+def _waitAll(futures):
+    """Wait until every future is done, polling so that Ctrl-C stays deliverable on Windows."""
+    pending = [f for f in futures if not f.done()]
+    while pending:
+        concurrent.futures.wait(pending, timeout=0.5)
+        pending = [f for f in pending if not f.done()]
+
+
+def _screenInParallel(rows, questions, configPath, input_pdf_folder, results, writeCombined, workers,
+                      reindex, skipExisting, individualDir, qHash):
+    """
+    The `workers > 1` branch of literature_screening: up to `workers` papers are processed at once, in threads
+    of one process. They share one LLM and one embedding model (loaded once; embedding calls are serialized
+    with a lock, see serializeEmbedding) and one event loop running in its own thread (LoopThread).
+    `results` (the combined output) and the progress counter are changed only here, in the main thread.
+    An ordinary error in one paper is recorded and the others go on. A run-wide error (NonRetryableApiError,
+    PipelineConfigError) or Ctrl-C sets `stopEvent`: papers not yet started are dropped, running papers stop
+    at their next question (RunStopped; their answers so far are in <pdf>.partial.json), and the first
+    run-wide error, or KeyboardInterrupt, is re-raised.
+    """
+    total = len(rows)
+    stopEvent = threading.Event()
+    models = loopThread = executor = None
+    futures = {}
+    try:
+        todo = [row for i, row in enumerate(rows)
+                if not (skipExisting and _skipIfReusable(row, i, total, individualDir, questions, qHash, results))]
+        finished = total - len(todo)   # papers done so far, for "Processing completed for paper k/N."
+        if not todo:
+            return
+        models = loadModels(configPath)
+        # reentrant: a locked batch method may call the locked single-text method (BaseEmbedding's default)
+        serializeEmbedding(models[1], threading.RLock())
+        loopThread = LoopThread()
+
+        def work(row):
+            if stopEvent.is_set():
+                raise RunStopped("the run stopped before this paper started")
+            try:
+                return process_single_paper(row, questions, configPath, input_pdf_folder, models=models,
+                                            reindex=reindex, loop=loopThread.loop, stopEvent=stopEvent)
+            except (NonRetryableApiError, PipelineConfigError, KeyboardInterrupt):
+                # set here, in the worker, so that this thread does not start the next queued paper
+                stopEvent.set()
+                raise
+
+        print(f"\nProcessing {len(todo)} paper(s), {workers} at a time.")
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fts-paper")
+        futures = {executor.submit(work, row): row for row in todo}
+        firstError = None
+
+        def stopRun():
+            stopEvent.set()
+            for f in futures:
+                f.cancel()   # only papers not yet started can be cancelled
+
+        collected = set()   # a future is added only once its result or error is recorded
+
+        def collect(future):
+            """Put a finished paper's result (or its error) in `results`; return a run-wide error, if any."""
+            nonlocal finished
+            row = futures[future]
+            error = None
+            if not future.cancelled():
+                try:
+                    result = future.result()
+                except RunStopped:
+                    pass   # stopped because of another paper's error or Ctrl-C: not this paper's error
+                except (NonRetryableApiError, PipelineConfigError, KeyboardInterrupt) as e:
+                    error = e
+                except Exception as e:
+                    _recordPaperError(results, row, e, row["pdf_filename"], "Continuing with the other papers.")
+                else:
+                    results.update(result)
+                    finished += 1
+                    print(f"\nProcessing completed for paper {finished}/{total}.")
+            collected.add(future)
+            return error
+
+        pending = set(futures)
+        try:
+            while pending:
+                # poll, so Ctrl-C stays deliverable on Windows (an untimed wait is not interruptible there);
+                # wait() never raises a paper's own exception, only .result() in collect() does
+                done, pending = concurrent.futures.wait(pending, timeout=0.5,
+                                                        return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    error = collect(future)
+                    if isinstance(error, KeyboardInterrupt):
+                        raise error
+                    if error is not None and firstError is None:
+                        firstError = error
+                        print(f"\nStopped at paper {futures[future]['pdf_filename']}: {error}\n"
+                              f"Waiting for the papers in progress to stop at their next question. Answers so far "
+                              f"are in {individualDir}. Fix the cause and rerun with skip_existing = True to resume.")
+                        stopRun()
+        except KeyboardInterrupt:
+            print("\nInterrupted: waiting for the papers in progress to stop at their next question; their answers "
+                  "so far are saved as partial results. Press Ctrl-C again to stop at once: the questions in "
+                  "progress are abandoned, those papers may get no partial result, and the program exits.")
+            stopRun()
+            _waitAll(futures)
+            # papers that finished before or while waiting, but were not collected yet
+            for future in futures:
+                if future not in collected:
+                    collect(future)
+            raise
+        if firstError is not None:
+            raise firstError
+    finally:
+        # Also runs on Ctrl-C (even a second one while waiting) and on errors that stop the run.
+        writeCombined()
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+        if loopThread is not None:
+            loopThread.close()
+        if models is not None:
+            if any(not f.done() for f in futures):
+                # a second Ctrl-C: some papers are still running; do not free the models under them
+                print("Stopping at once: papers still in progress are abandoned; the models are not freed "
+                      "(the program exits once their current step returns).")
+            else:
+                freeModels(*models)
 
 
 

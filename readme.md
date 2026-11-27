@@ -111,12 +111,14 @@ The `ConfigLitScr.cfg` file contains all the necessary configuration parameters.
 ### General Settings
 ```
 [general]
-appVersion = 0.10.0
+appVersion = 0.11.0
 forceReindex = False
 enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
+workers = 10           # papers processed at once, 1-10 (see "Parallel papers" below)
+# api_max_attempts = 15 # tries per failed API call (default 15, worst case about 9 min of waiting per call)
 ```
 
 ### LLM Model Settings
@@ -148,6 +150,8 @@ embedDim = 3584
 # embed_device = cuda         # optional: cpu (default), cuda or auto
 # embed_quantization = 8bit   # optional, GPU only: none, fp16, 8bit or 4bit
 ```
+The embedding precision (`cpu-fp32` by default, or e.g. `cuda-8bit`) is part of each paper's index key: a CPU fp32 run reuses existing indexes, any other precision builds a separate index.
+
 If the context window cannot be looked up and `context_window` is not set, the run stops with an error instead of falling back to llama-index's 3,900-token default, which would truncate the retrieved context.
 
 ### Mistral Settings
@@ -260,6 +264,13 @@ The script will:
 - **Before 0.10.0:** `persistent_index = False` wipes the database and indexes the paper again for every paper. That wipe (like the chatbot's "clear") deletes every node, the persistent index included, so do not run it, or an earlier version, while a persistent run is using the same database.
 - **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
+**Parallel papers (`workers` in `[general]`, default 1):**
+- **Recommended: `workers = 10`** (the template's setting). Measured on 2026-11-27 with 3 questions per paper on the GPU: 1 worker about 23 s per question; 3 workers 22 s; 10 workers 38 s per question but 10 at once, with no failed questions. About half the API replies at 10 workers were 429s (Mistral's shared pool on OpenRouter); 429s are not billed, and the reruns they caused added about 6-9 % requests. Projected for 168 papers with 25 questions: about 27-32 h with 1 worker, 8.5-12 h with 3, 5-8 h with 10.
+- **What it does:** `workers = 2` to `10` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 10 stop the run with a config error.
+- **Shared models:** the LLM client and the embedding model are loaded once and shared by all workers, so a local embedding model uses one GPU and one copy of its weights; embedding calls take turns.
+- **Requires `persistent_index = True`:** with `persistent_index = False` every paper wipes the database the others are searching, so `workers > 1` is refused.
+- **Errors:** an error in one paper is recorded and the other papers go on. An error that stops the run (out of credit, invalid key, setup error) or Ctrl-C lets the papers in progress stop at their next question (saved as `<pdf_filename>.partial.json`), drops the papers not yet started, and writes `outputFile`. A paper waiting for an LLM reply notices only once that reply arrives. Pressing Ctrl-C again during that wait stops at once: the questions in progress are abandoned, those papers may get no `.partial.json`, the models are not freed, and the program exits once each worker's current step returns (an indexing step in progress runs to its end). Rerun with `skip_existing = True` to resume.
+
 ## Output Format
 
 The tool generates a JSON file with the following structure. Results are keyed by `pdf_filename` (versions before 0.9 used the numeric `paper_id`). `QuestionText` is copied from the questionnaire. The model writes `Evidence` and `Reasoning` before `ShortAnswer`, so that it reasons before answering.
@@ -296,7 +307,7 @@ The tool generates a JSON file with the following structure. Results are keyed b
 
 ## Tests
 
-Offline tests cover answer parsing, retries, the context-window lookup, the memory cap, resuming and config resolution. They need no API key, Neo4j or GPU:
+Offline tests cover answer parsing, retries, the context-window lookup, the memory cap, resuming, parallel papers and config resolution. They need no API key, Neo4j or GPU:
 ```bash
 python -m unittest discover -s tests -v
 ```
@@ -311,7 +322,7 @@ Common issues and solutions:
    - Processing fewer papers at once
 
 2. **API Rate Limits**: If you hit API rate limits:
-   - The tool will automatically retry with exponential backoff
+   - The tool will automatically retry with exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most 60 s per wait); `api_max_attempts` in `[general]` sets the number of attempts per call (default 15, about 9 minutes of waiting per call in the worst case)
    - Consider using a paid API tier for higher limits
 
 3. **Neo4j Connection Issues**: If you cannot connect to Neo4j:

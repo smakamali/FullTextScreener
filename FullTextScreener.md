@@ -288,32 +288,35 @@ Here are the categories of the imports:
         - Ensures the log directory and file exist.
         - Sets up logging handlers (file and stream) and adjusts log levels for third-party libraries like `requests` and `urllib3`.
         - Returns a logger object for the module.
-- **`safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)`**
+- **`safeApiCall(call, enableLogging, *args, maxAttempts=15, maxWait=60, stopEvent=None, **kwargs)`**
     - **Purpose:** Executes an API call with automatic retries for transient errors.
     - **How It Works:**
-        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to 8 times with capped exponential backoff and jitter.
+        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to `maxAttempts` times (default 15; the question loop passes `api_max_attempts` from `[general]`, read by `readApiMaxAttempts`; whole number >= 1, worst case about 9 minutes of waiting per call) with capped exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` = 60 s).
         - Raises `NonRetryableApiError` at once for errors that retrying cannot fix (HTTP 400, 401, 402, 403, 404).
         - Raises `AgentStepLimitError` at once if the agent ran out of reasoning steps, so the caller can decide whether to ask again.
+        - Re-raises `concurrent.futures.CancelledError` (the event-loop thread is shutting down) and `RunStopped` at once, without retrying.
+        - Stops retrying when the run is stopping: once `stopEvent` is set (another paper hit a run-wide error, or Ctrl-C), a failed call is not retried and the backoff wait ends early, raising `RunStopped`.
 - **`getOpenRouterContextWindow(modelName, apiKey)`**
     - **Purpose:** Looks up the model's context length in OpenRouter's model listing (cached after the first success).
     - **How It Works:** Retries the lookup; if it fails or the model is not listed, raises `PipelineConfigError` instead of falling back to llama-index's 3,900-token default. An explicit `context_window` in the config skips the lookup.
 - **`parseAnswer(text)`** (and the backward-compatible `cleanAndConvertJson(text)`)
     - **Purpose:** Turns the model's reply into `{"Evidence", "Reasoning", "ShortAnswer"}`.
     - **How It Works:** Accepts code fences, text around the JSON object, newlines inside strings, alias key names (`answer`, `justification`, `evidence`) and an answer nested in another object. Returns `None` if no answer can be found (`cleanAndConvertJson` returns the original text instead).
-- **`process_single_paper(row, questions, configPath, input_pdf_folder)`**
+- **`process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None, stopEvent=None)`**
     - **Purpose:** Processes a single research paper:
         - Instantiates a fresh `ChatbotAgents` instance (so the per-paper memory starts empty).
         - Clears any previous data, uploads and indexes the paper's PDF (refusing PDFs without a usable text layer).
-        - Asks every question (`_answerAllQuestions`): a reply that cannot be parsed is asked once more, and a question that still fails is recorded with an `error` key.
+        - Asks every question (`_answerAllQuestions`): a reply that cannot be parsed is asked once more, and a question that still fails is recorded with an `error` key. If `stopEvent` is set, `RunStopped` is raised before the next question; the answers so far are saved in `<pdf>.partial.json` and the error is re-raised.
         - Returns `{pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}`.
     - **Saving:** a complete result goes to `<outputDir>/individual/<pdf>.json`; a paper with failed questions, or one interrupted by an error, goes to `<pdf>.partial.json`. Files are written atomically.
 - **`literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path)`**
-    - **Purpose:** Processes every paper in the metadata file, one after another.
+    - **Purpose:** Processes every paper in the metadata file, one after another, or `workers` at a time.
     - **How It Works:**
         - Reads metadata from a CSV or Excel file.
         - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`) and redoes partial, unreadable or outdated ones.
         - Records an unexpected error in one paper and moves on; stops the run on `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C.
         - Always writes the combined results to `output_json_path`, however the run ends, and logs the processing time.
+        - **`workers > 1`** (`readWorkers`: 1 to 10, and only with `persistent_index = True`; otherwise `PipelineConfigError`): `_screenInParallel` loads the models once, serializes the embedding model's calls with a lock (`serializeEmbedding`), starts one event-loop thread (`LoopThread`) and submits the papers to a `ThreadPoolExecutor`. Results are collected in the main thread as papers finish. On `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C it sets the stop event, cancels the papers not yet started, waits for the running ones to stop at their next question (`RunStopped`, not reported as an error) and re-raises the first run-wide error, or `KeyboardInterrupt`.
 
 ## **Workflow Overview**
 
@@ -400,7 +403,7 @@ Assume we have 4 research papers with unique IDs and corresponding PDF files. Th
     
 2. **Per-Paper Processing:**
     
-    For each paper (handled in a separate process via `multiprocessing`):
+    For each paper (one after another, or up to `workers` papers at once in threads of one process that share the models and one event loop):
     
     - **Initialization:**
         
