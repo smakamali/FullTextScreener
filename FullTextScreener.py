@@ -423,7 +423,7 @@ class Index:
         self.vectorIndex = vectorIndex
         return vectorIndex
     
-    def append(self, inputDocsDir, batchSize=1):
+    def append(self, inputDocsDir, batchSize=1, paperKey=None):
         documents = SimpleDirectoryReader(
             inputDocsDir,
             recursive=True,
@@ -433,6 +433,8 @@ class Index:
                 '.pdf': CustomPDFReader(llm=self.llm),
             },
         ).load_data()
+        if paperKey:
+            tagDocuments(documents, paperKey)
         self._buildVector(documents, batchSize)
     
     def get(self):
@@ -601,7 +603,7 @@ Query:
         as before (the database then holds only the current paper).
         """
         if forceReindex:
-            self.index.append(inputDocsDir=self.inputDir)
+            self.index.append(inputDocsDir=self.inputDir, paperKey=paperKey)
         filters, postprocessors, self.leakGuard = None, [], None
         if paperKey:
             filters = MetadataFilters(filters=[
@@ -960,9 +962,9 @@ class ChatbotAgents:
         queryEngine = getattr(self, 'queryEngine', None)
         return getattr(queryEngine, 'leakGuard', None)
 
-    def appendIndex(self, vectorTopK, cutoffScore):
+    def appendIndex(self, vectorTopK, cutoffScore, paperKey=None):
         self.updateParams(vectorTopK, cutoffScore)
-        self.queryEngine._buildVectorQueryEngine(forceReindex=True)
+        self.queryEngine._buildVectorQueryEngine(forceReindex=True, paperKey=paperKey)
         self._buildAll()
         return self.successMsg
     
@@ -1304,9 +1306,11 @@ def countPdfWords(pdfPath):
 def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False):
     """
     Process a single paper:
-      - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty.
-      - Reset the database and index store.
-      - Upload and index the corresponding PDF.
+      - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty; `models` (from loadModels)
+        are shared across papers.
+      - persistent_index = True (default): index the PDF only if the persistent index does not already hold it
+        (or if `reindex`), then restrict every search to this paper's chunks, checked by PaperKeyGuard.
+        persistent_index = False: reset the database and index the PDF, as before 0.10.0.
       - Ask every question about the indexed document.
       - Return {pdf_filename: {"metadata", "questionnaire_sha256", "answers"}}.
 
@@ -1324,13 +1328,18 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
     config = Config(configPath)
     individual_output_dir = os.path.join(config.dir_structure['outputdir'], 'individual')
 
-    # Instantiate a new screeningAgent for this paper.
+    persistent = bool(config.general.get('persistent_index', True))
+    paperKey = None
+
+    # Instantiate a new screeningAgent for this paper (new memory; the models may be shared).
     screeningAgent = ChatbotAgents(configPath=configPath, models=models)
+    screeningAgent.persistent = persistent
     try:
         screeningAgent.selectDefaultAgent()
 
-        # Reset the database and clear any uploaded files.
-        screeningAgent.clearFiles()
+        if not persistent:
+            # Reset the database and clear any uploaded files.
+            screeningAgent.clearFiles()
 
         # Build the full path to the PDF file.
         pdf_path = os.path.join(input_pdf_folder, pdf_filename)
@@ -1347,17 +1356,32 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
             print(msg)
             return {paper_id: {"metadata": row, "answers": {"error": msg}}}
 
-        # Upload the PDF file.
-        upload_msg = screeningAgent.uploadFiles([pdf_path])
-        print(upload_msg)
-
-        # Index the uploaded PDF using current vector retrieval settings.
         vectorTopK = screeningAgent.config.retriever['vectortopk']
         cutoffScore = screeningAgent.config.retriever['cutoffscore']
         enableLogging = screeningAgent.config.general['enablelogging']
 
         try:
-            screeningAgent.appendIndex(vectorTopK, cutoffScore)
+            if persistent:
+                # Index the paper only if the persistent index does not already hold it completely, then
+                # restrict every search to its chunks (see computePaperKey and PaperIndexRegistry).
+                paperKey = computePaperKey(pdf_path, config)
+                registry = PaperIndexRegistry(screeningAgent.queryEngine.index.storage)
+                try:
+                    if reindex or not registry.isIndexed(paperKey):
+                        registry.deletePaper(paperKey)   # leftovers of an interrupted or forced indexing
+                        print(screeningAgent.uploadFiles([pdf_path]))
+                        screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey)
+                        nChunks = registry.markIndexed(paperKey, pdf_filename)
+                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey})")
+                    else:
+                        print(f"Reusing the index of {pdf_filename} (key {paperKey})")
+                finally:
+                    registry.close()
+                screeningAgent.setPaper(paperKey)
+            else:
+                # Upload and index the PDF using current vector retrieval settings.
+                print(screeningAgent.uploadFiles([pdf_path]))
+                screeningAgent.appendIndex(vectorTopK, cutoffScore)
         except Exception as e:
             # Indexing calls the LLM (citation extraction). An error that retrying cannot fix
             # (e.g., out of credit) would fail every following paper too, so stop the run.
@@ -1367,19 +1391,20 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
             print(f"Error indexing PDF: {e}")
             return {paper_id: {"metadata": row, "answers": {"error": f"Error indexing PDF: {e}"}}}
 
+        paperKeyField = {"paper_key": paperKey} if paperKey else {}
         paper_answers = {}
         try:
             failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id)
         except BaseException as e:
             # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
             # result) and re-raise so the caller can stop the run.
-            partial = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers,
+            partial = {"metadata": row, "questionnaire_sha256": qHash, **paperKeyField, "answers": paper_answers,
                        "error": f"{type(e).__name__}: {e}",
                        "answered": f"{len(paper_answers)}/{len(questions)}"}
             save_individual_result(paper_id, partial, individual_output_dir, suffix=".partial")
             raise
 
-        paper_result = {"metadata": row, "questionnaire_sha256": qHash, "answers": paper_answers}
+        paper_result = {"metadata": row, "questionnaire_sha256": qHash, **paperKeyField, "answers": paper_answers}
         stalePartial = os.path.join(individual_output_dir, f"{paper_id}.partial.json")
         if failed:
             paper_result["error"] = f"{failed} of {len(questions)} question(s) could not be answered"
@@ -1469,8 +1494,9 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
 def literature_screening(metadata_file_path, questions, configPath, input_pdf_folder, output_json_path, reindex=False):
     """
     Screen every paper in the metadata file (csv or xlsx), one after another:
-      - each paper gets a fresh ChatbotAgents instance, which resets the database, uploads and indexes
-        the PDF, and answers every question (see process_single_paper);
+      - each paper gets a fresh ChatbotAgents instance (new memory), which reuses or builds the paper's index
+        and answers every question (see process_single_paper); the LLM and embedding model are loaded once,
+        when the first paper needs processing, and shared by all papers;
       - with `skip_existing = True` in [general], papers with a reusable result in
         <outputDir>/individual/<pdf>.json are loaded instead of processed again (see checkCompleteResult);
       - an unexpected error in one paper is recorded and the run moves on to the next paper;
@@ -1597,6 +1623,8 @@ def parseArgs(argv=None):
     parser = argparse.ArgumentParser(description="Answer a questionnaire for each paper in a metadata file.")
     parser.add_argument('--config', help="Path to the config file (default: FTS_CONFIG, then "
                                          f"{DEFAULT_CONFIG_PATH}, then {LEGACY_CONFIG_PATH}).")
+    parser.add_argument('--reindex', action='store_true',
+                        help="Index every paper of the run again, even if the persistent index already holds it.")
     return parser.parse_args(argv)
 
 
@@ -1639,7 +1667,8 @@ if __name__ == "__main__":
             questions = json.load(f)
 
         # Run the literature screening process.
-        literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path)
+        literature_screening(metadata_csv_path, questions, configPath, input_pdf_folder, output_json_path,
+                             reindex=args.reindex)
 
     except Exception as e:
         logger.error(f"Exception occurred:\n\n {e}", exc_info=True)

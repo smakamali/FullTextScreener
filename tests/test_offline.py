@@ -658,5 +658,148 @@ class SharedModelTests(unittest.TestCase):
         self.assertFalse(llm.movedToCpu or embed.movedToCpu)
 
 
+class FakeRegistry:
+    """Stands in for PaperIndexRegistry; the state is shared by all instances of one test."""
+    indexed, calls = set(), []
+
+    def __init__(self, storage):
+        pass
+
+    def isIndexed(self, key):
+        FakeRegistry.calls.append(("isIndexed", key))
+        return key in FakeRegistry.indexed
+
+    def deletePaper(self, key):
+        FakeRegistry.calls.append(("deletePaper", key))
+        FakeRegistry.indexed.discard(key)
+
+    def markIndexed(self, key, fileName):
+        FakeRegistry.calls.append(("markIndexed", key))
+        FakeRegistry.indexed.add(key)
+        return 5
+
+    def close(self):
+        pass
+
+
+class PersistentFlowTests(unittest.TestCase):
+    QUESTIONS = {"Q1": "one?"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = self.tmp.name
+        self.pdfs = os.path.join(root, "pdfs")
+        os.makedirs(self.pdfs)
+        for name, data in (("a.pdf", b"paper A"), ("a_copy.pdf", b"paper A"), ("b.pdf", b"paper B")):
+            with open(os.path.join(self.pdfs, name), "wb") as f:
+                f.write(data)
+        self.outputDir = os.path.join(root, "output")
+        FakeRegistry.indexed, FakeRegistry.calls = set(), []
+        patches = [
+            mock.patch.object(fts, "ChatbotAgents"),
+            mock.patch.object(fts, "PaperIndexRegistry", FakeRegistry),
+            mock.patch.object(fts, "countPdfWords", return_value=5000),
+            mock.patch.object(fts, "_answerAllQuestions", side_effect=self.fakeAnswers),
+        ]
+        self.agentClass = patches[0].start()
+        for p in patches[1:]:
+            p.start()
+        for p in patches:
+            self.addCleanup(p.stop)
+        self.agent = self.agentClass.return_value
+
+    def fakeAnswers(self, agent, questions, answers, enableLogging, paperId=""):
+        for q, t in questions.items():
+            answers[q] = {"QuestionText": t, "Evidence": "e", "Reasoning": "r", "ShortAnswer": "Yes"}
+        return 0
+
+    def config(self, persistent=True):
+        path = os.path.join(self.tmp.name, f"test_{persistent}.cfg")
+        lines = ["[general]", f"persistent_index = {persistent}",
+                 "[dir-structure]", f"outputDir = {self.outputDir}",
+                 "[nodeparser]", "nodeParserType = static", "chunk_size = 1000", "chunk_overlap = 50",
+                 "bufferSize = 1", "breakpointPercentileThreshold = 95",
+                 "[llm-model]", "service = openrouter", "[openrouter]", "embed_model = some/model", ""]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+    def run_paper(self, name, persistent=True, reindex=False):
+        return fts.process_single_paper({"paper_id": "1", "pdf_filename": name}, self.QUESTIONS,
+                                        self.config(persistent), self.pdfs, models=("llm", "embed"), reindex=reindex)
+
+    def key(self, name):
+        return fts.computePaperKey(os.path.join(self.pdfs, name), fts.Config(self.config()))
+
+    def test_new_paper_is_indexed_and_marked(self):
+        self.run_paper("a.pdf")
+        key = self.key("a.pdf")
+        self.assertEqual(FakeRegistry.calls, [("isIndexed", key), ("deletePaper", key), ("markIndexed", key)])
+        self.agent.appendIndex.assert_called_once()
+        self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("paperKey"), key)
+        self.agent.setPaper.assert_called_once_with(key)
+        self.agent.clearFiles.assert_not_called()
+        self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"))
+
+    def test_indexed_paper_skips_indexing(self):
+        FakeRegistry.indexed.add(self.key("a.pdf"))
+        self.run_paper("a.pdf")
+        self.agent.uploadFiles.assert_not_called()
+        self.agent.appendIndex.assert_not_called()
+        self.agent.setPaper.assert_called_once_with(self.key("a.pdf"))
+
+    def test_half_built_paper_is_rebuilt(self):
+        # isIndexed is False for a paper whose marker is missing or whose chunk count is off
+        self.run_paper("a.pdf")
+        names = [c[0] for c in FakeRegistry.calls]
+        self.assertLess(names.index("deletePaper"), names.index("markIndexed"))
+        self.agent.appendIndex.assert_called_once()
+
+    def test_reindex_flag_forces_indexing(self):
+        FakeRegistry.indexed.add(self.key("a.pdf"))
+        self.run_paper("a.pdf", reindex=True)
+        self.agent.appendIndex.assert_called_once()
+        self.assertIn(("deletePaper", self.key("a.pdf")), FakeRegistry.calls)
+
+    def test_second_name_reuses_index(self):
+        self.run_paper("a.pdf")
+        self.run_paper("a_copy.pdf")
+        self.assertEqual(self.agent.appendIndex.call_count, 1)
+        self.assertEqual(self.agent.setPaper.call_args_list, [mock.call(self.key("a.pdf"))] * 2)
+
+    def test_different_papers_get_different_keys(self):
+        self.run_paper("a.pdf")
+        self.run_paper("b.pdf")
+        self.assertEqual(self.agent.appendIndex.call_count, 2)
+        keys = [c.args[0] for c in self.agent.setPaper.call_args_list]
+        self.assertEqual(len(set(keys)), 2)
+
+    def test_non_persistent_wipes_each_paper(self):
+        with mock.patch.object(FakeRegistry, "__init__", side_effect=AssertionError("registry used")):
+            self.run_paper("a.pdf", persistent=False)
+        self.agent.clearFiles.assert_called_once()
+        self.agent.appendIndex.assert_called_once()
+        self.assertIsNone(self.agent.appendIndex.call_args.kwargs.get("paperKey"))
+        self.agent.setPaper.assert_not_called()
+        self.assertFalse(self.agent.persistent)
+
+    def test_result_records_paper_key(self):
+        result = self.run_paper("a.pdf")
+        self.assertEqual(result["a.pdf"]["paper_key"], self.key("a.pdf"))
+        with open(os.path.join(self.outputDir, "individual", "a.pdf.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["paper_key"], self.key("a.pdf"))
+
+    def test_failed_marking_is_an_indexing_error(self):
+        with mock.patch.object(FakeRegistry, "markIndexed", side_effect=ValueError("No chunks were stored")):
+            result = self.run_paper("a.pdf")
+        self.assertIn("Error indexing PDF", result["a.pdf"]["answers"]["error"])
+        self.agent.setPaper.assert_not_called()
+
+    def test_reindex_cli_flag(self):
+        self.assertTrue(fts.parseArgs(["--reindex"]).reindex)
+        self.assertFalse(fts.parseArgs([]).reindex)
+
+
 if __name__ == "__main__":
     unittest.main()
