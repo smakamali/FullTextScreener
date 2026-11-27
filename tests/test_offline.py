@@ -177,6 +177,31 @@ class ErrorHandlingTests(unittest.TestCase):
         self.assertEqual(call.call_count, 3)
 
     @mock.patch.object(fts.time, "sleep")
+    def test_default_is_15_attempts(self, sleep):
+        call = mock.Mock(side_effect=_httpError(429))
+        with self.assertRaises(Exception) as ctx:
+            fts.safeApiCall(call, enableLogging=False)
+        self.assertEqual(call.call_count, 15)
+        self.assertIn("after 15 attempts", str(ctx.exception))
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_jitter_is_half_to_full_step(self, sleep):
+        call = mock.Mock(side_effect=_httpError(429))
+        with mock.patch.object(fts.random, "uniform", return_value=0.5) as uniform:
+            with self.assertRaises(Exception):
+                fts.safeApiCall(call, enableLogging=False, maxAttempts=9)
+        uniform.assert_called_with(0.5, 1.0)
+        waits = [c.args[0] for c in sleep.call_args_list]
+        self.assertEqual(waits, [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0])   # 50 % of 1, 2, ..., then capped at maxWait 60
+        sleep.reset_mock()
+        call.reset_mock()
+        with self.assertRaises(Exception):
+            fts.safeApiCall(call, enableLogging=False, maxAttempts=9)
+        for attempt, c in enumerate(sleep.call_args_list):
+            step = min(2 ** attempt, 60)
+            self.assertTrue(0.5 * step <= c.args[0] <= step, (attempt, c.args[0]))
+
+    @mock.patch.object(fts.time, "sleep")
     def test_transient_exhausted_reports_last_error(self, sleep):
         call = mock.Mock(side_effect=_httpError(429))
         with self.assertRaises(Exception) as ctx:
@@ -255,6 +280,12 @@ class AnswerLoopTests(unittest.TestCase):
         self.assertEqual(answers["Q1"]["ShortAnswer"], "Yes")
         self.assertEqual(answers["Q1"]["QuestionText"], "Question one?")
         self.assertIn("could not be read", agent.queries[1])
+
+    def test_answer_loop_passes_attempts_to_safe_api_call(self, sleep):
+        agent = FakeAgent([GOOD])
+        with mock.patch.object(fts, "safeApiCall", wraps=fts.safeApiCall) as spy:
+            fts._answerAllQuestions(agent, {"Q1": "one?"}, {}, False, apiMaxAttempts=4)
+        self.assertEqual(spy.call_args.kwargs["maxAttempts"], 4)
 
     def test_failed_question_recorded_and_run_continues(self, sleep):
         agent = FakeAgent(["bad", "still bad", GOOD])
@@ -702,12 +733,21 @@ class ParallelRunTests(unittest.TestCase):
             fts.readWorkers(fts.Config(path))
 
     def test_workers_bounds(self):
-        for value in ("0", "5", "two", "2.5"):
+        for value in ("0", "11", "two", "2.5"):
             path = self.writeConfig(f"workers = {value}\n")
             with self.assertRaises(fts.PipelineConfigError, msg=value):
                 fts.readWorkers(fts.Config(path))
         self.assertEqual(fts.readWorkers(fts.Config(self.writeConfig(""))), 1)
         self.assertEqual(fts.readWorkers(fts.Config(self.writeConfig("workers = 4\n"))), 4)
+        self.assertEqual(fts.readWorkers(fts.Config(self.writeConfig("workers = 10\n"))), 10)
+
+    def test_api_max_attempts_parsing(self):
+        self.assertEqual(fts.readApiMaxAttempts(fts.Config(self.writeConfig(""))), 15)
+        self.assertEqual(fts.readApiMaxAttempts(fts.Config(self.writeConfig("api_max_attempts = 3\n"))), 3)
+        for value in ("0", "x", "2.5", "-1"):
+            path = self.writeConfig(f"api_max_attempts = {value}\n")
+            with self.assertRaises(fts.PipelineConfigError, msg=value):
+                fts.readApiMaxAttempts(fts.Config(path))
 
 
 class ConfigResolutionTests(unittest.TestCase):
@@ -1162,7 +1202,8 @@ class PersistentFlowTests(unittest.TestCase):
         self.agent = self.agentClass.return_value
         self.agent.embedModel = types.SimpleNamespace()   # no _fts_precision: the CPU default
 
-    def fakeAnswers(self, agent, questions, answers, enableLogging, paperId="", stopEvent=None):
+    def fakeAnswers(self, agent, questions, answers, enableLogging, paperId="", stopEvent=None, apiMaxAttempts=15):
+        self.attemptsSeen = getattr(self, "attemptsSeen", []) + [apiMaxAttempts]
         self.stopEventsSeen = getattr(self, "stopEventsSeen", []) + [stopEvent]
         if stopEvent is not None and stopEvent.is_set():
             raise fts.RunStopped("stopped")
@@ -1200,6 +1241,18 @@ class PersistentFlowTests(unittest.TestCase):
         self.agent.uploadFiles.assert_not_called()
         self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("inputFiles"), [os.path.join(self.pdfs, "a.pdf")])
         self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"), loop=None)
+
+    def test_configured_api_attempts_reach_the_answer_loop(self):
+        self.run_paper("a.pdf")
+        self.assertEqual(self.attemptsSeen, [15])
+        path = self.config()
+        with open(path, encoding="utf-8") as f:
+            text = f.read().replace("[general]\n", "[general]\napi_max_attempts = 3\n", 1)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        fts.process_single_paper({"paper_id": "1", "pdf_filename": "b.pdf"}, self.QUESTIONS, path, self.pdfs,
+                                 models=("llm", "embed"))
+        self.assertEqual(self.attemptsSeen, [15, 3])
 
     def test_gpu_precision_reaches_key(self):
         """The embedding model's precision is part of the key: a GPU model never reuses the CPU index."""

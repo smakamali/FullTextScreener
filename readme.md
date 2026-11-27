@@ -117,7 +117,8 @@ enableLogging = True
 showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
-# workers = 1           # papers processed at once, 1-4 (see "Parallel papers" below)
+# workers = 1           # papers processed at once, 1-10 (see "Parallel papers" below)
+# api_max_attempts = 15 # tries per failed API call (default 15, worst case about 10 min of waiting per call)
 ```
 
 ### LLM Model Settings
@@ -264,7 +265,7 @@ The script will:
 - **Upgrading:** chunks indexed by earlier versions are `Chunk` nodes and are never retrieved by the persistent index; nothing needs clearing.
 
 **Parallel papers (`workers` in `[general]`, default 1):**
-- **What it does:** `workers = 2` to `4` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 4 stop the run with a config error.
+- **What it does:** `workers = 2` to `10` processes that many papers at once, in threads of one process. Most of a paper's time is spent waiting for the LLM, so several papers wait at once. Values outside 1 to 10 stop the run with a config error.
 - **Shared models:** the LLM client and the embedding model are loaded once and shared by all workers, so a local embedding model uses one GPU and one copy of its weights; embedding calls take turns.
 - **Requires `persistent_index = True`:** with `persistent_index = False` every paper wipes the database the others are searching, so `workers > 1` is refused.
 - **Errors:** an error in one paper is recorded and the other papers go on. An error that stops the run (out of credit, invalid key, setup error) or Ctrl-C lets the papers in progress stop at their next question (saved as `<pdf_filename>.partial.json`), drops the papers not yet started, and writes `outputFile`. A paper waiting for an LLM reply notices only once that reply arrives. Pressing Ctrl-C again during that wait stops at once: the questions in progress are abandoned, those papers may get no `.partial.json`, the models are not freed, and the program exits once each worker's current step returns (an indexing step in progress runs to its end). Rerun with `skip_existing = True` to resume.
@@ -320,7 +321,7 @@ Common issues and solutions:
    - Processing fewer papers at once
 
 2. **API Rate Limits**: If you hit API rate limits:
-   - The tool will automatically retry with exponential backoff
+   - The tool will automatically retry with exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most 60 s per wait); `api_max_attempts` in `[general]` sets the number of attempts per call (default 15, about 10 minutes of waiting per call in the worst case)
    - Consider using a paid API tier for higher limits
 
 3. **Neo4j Connection Issues**: If you cannot connect to Neo4j:

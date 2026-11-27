@@ -288,10 +288,10 @@ Here are the categories of the imports:
         - Ensures the log directory and file exist.
         - Sets up logging handlers (file and stream) and adjusts log levels for third-party libraries like `requests` and `urllib3`.
         - Returns a logger object for the module.
-- **`safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, stopEvent=None, **kwargs)`**
+- **`safeApiCall(call, enableLogging, *args, maxAttempts=15, maxWait=60, stopEvent=None, **kwargs)`**
     - **Purpose:** Executes an API call with automatic retries for transient errors.
     - **How It Works:**
-        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to 8 times with capped exponential backoff and jitter.
+        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to `maxAttempts` times (default 15; the question loop passes `api_max_attempts` from `[general]`, read by `readApiMaxAttempts`; whole number >= 1, worst case about 10 minutes of waiting per call) with capped exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` = 60 s).
         - Raises `NonRetryableApiError` at once for errors that retrying cannot fix (HTTP 400, 401, 402, 403, 404).
         - Raises `AgentStepLimitError` at once if the agent ran out of reasoning steps, so the caller can decide whether to ask again.
         - Re-raises `concurrent.futures.CancelledError` (the event-loop thread is shutting down) and `RunStopped` at once, without retrying.
@@ -316,7 +316,7 @@ Here are the categories of the imports:
         - With `skip_existing = True`, reuses complete results made with the same questionnaire (`checkCompleteResult`) and redoes partial, unreadable or outdated ones.
         - Records an unexpected error in one paper and moves on; stops the run on `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C.
         - Always writes the combined results to `output_json_path`, however the run ends, and logs the processing time.
-        - **`workers > 1`** (`readWorkers`: 1 to 4, and only with `persistent_index = True`; otherwise `PipelineConfigError`): `_screenInParallel` loads the models once, serializes the embedding model's calls with a lock (`serializeEmbedding`), starts one event-loop thread (`LoopThread`) and submits the papers to a `ThreadPoolExecutor`. Results are collected in the main thread as papers finish. On `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C it sets the stop event, cancels the papers not yet started, waits for the running ones to stop at their next question (`RunStopped`, not reported as an error) and re-raises the first run-wide error, or `KeyboardInterrupt`.
+        - **`workers > 1`** (`readWorkers`: 1 to 10, and only with `persistent_index = True`; otherwise `PipelineConfigError`): `_screenInParallel` loads the models once, serializes the embedding model's calls with a lock (`serializeEmbedding`), starts one event-loop thread (`LoopThread`) and submits the papers to a `ThreadPoolExecutor`. Results are collected in the main thread as papers finish. On `NonRetryableApiError`, `PipelineConfigError` or Ctrl-C it sets the stop event, cancels the papers not yet started, waits for the running ones to stop at their next question (`RunStopped`, not reported as an error) and re-raises the first run-wide error, or `KeyboardInterrupt`.
 
 ## **Workflow Overview**
 

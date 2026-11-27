@@ -193,10 +193,11 @@ class PipelineConfigError(Exception):
 class RunStopped(Exception):
     """The run is stopping (another paper hit a run-wide error, or Ctrl-C): this paper ends at its next question."""
 
-MAX_WORKERS = 4
+MAX_WORKERS = 10
+DEFAULT_API_MAX_ATTEMPTS = 15
 
 def readWorkers(config):
-    """`workers` in [general]: how many papers are processed at once (1-4, default 1). Several workers need
+    """`workers` in [general]: how many papers are processed at once (1-10, default 1). Several workers need
     persistent_index = True (without it, each paper wipes the database the other papers are searching)."""
     workers = config.general.get('workers', 1)
     if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
@@ -206,6 +207,14 @@ def readWorkers(config):
             f"workers = {workers} needs persistent_index = True in [general]: with persistent_index = False each "
             f"paper wipes the database the other papers are searching. Set workers = 1 or persistent_index = True.")
     return workers
+
+def readApiMaxAttempts(config):
+    """`api_max_attempts` in [general]: how often one failed API call is tried in total before the question
+    counts as failed (whole number >= 1, default 15; the waits between attempts add up to about 10 minutes)."""
+    attempts = config.general.get('api_max_attempts', DEFAULT_API_MAX_ATTEMPTS)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        raise PipelineConfigError(f"api_max_attempts in [general] must be a whole number of at least 1, not {attempts!r}.")
+    return attempts
 
 class AgentStepLimitError(Exception):
     """The ReAct agent reached `max_iterations` without producing a final answer."""
@@ -239,10 +248,10 @@ def getHttpStatus(error):
         error = error.__cause__ or error.__context__
     return None
 
-def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, stopEvent=None, **kwargs):
+def safeApiCall(call, enableLogging, *args, maxAttempts=DEFAULT_API_MAX_ATTEMPTS, maxWait=60, stopEvent=None, **kwargs):
     """
     Call `call(*args, **kwargs)`, retrying transient failures with capped exponential backoff
-    (1, 2, 4, ... seconds, at most `maxWait` each). Errors that retrying cannot fix
+    with jitter: a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` (so parallel workers do not retry in step). Errors that retrying cannot fix
     (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately. A cancelled call
     (concurrent.futures.CancelledError: the event-loop thread is shutting down) and RunStopped are
     re-raised at once. `stopEvent` (a threading.Event, optional): once it is set, a failed call is not
@@ -274,7 +283,7 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, stopEvent
             lastError = e
             if stopEvent is not None and stopEvent.is_set():
                 raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
-            wait = min(2 ** attempt, maxWait) + random.random()
+            wait = min(2 ** attempt, maxWait) * random.uniform(0.5, 1.0)
             if enableLogging:
                 log_str = f"Error occurred (attempt {attempt + 1}/{maxAttempts}): {e}. Waiting for {wait:.2f} seconds."
                 logging.warning(log_str)
@@ -1627,7 +1636,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
         paper_answers = {}
         try:
             failed = _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id,
-                                         stopEvent=stopEvent)
+                                         stopEvent=stopEvent, apiMaxAttempts=readApiMaxAttempts(config))
         except BaseException as e:
             # Keep what was answered so far in "<paper>.partial.json" (never mistaken for a complete
             # result) and re-raise so the caller can stop the run.
@@ -1676,7 +1685,8 @@ def _errorAnswer(q_text, message, raw=None):
         answer["raw"] = raw
     return answer
 
-def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id="", stopEvent=None):
+def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging, paper_id="", stopEvent=None,
+                       apiMaxAttempts=DEFAULT_API_MAX_ATTEMPTS):
     """
     Ask every question for the current paper, filling `paper_answers` as answers arrive.
 
@@ -1701,6 +1711,7 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
                     queryStr=query if attempt == 0 else query + JSON_REMINDER,
                     history=None,
                     stopEvent=stopEvent,
+                    maxAttempts=apiMaxAttempts,
                 )
             except (NonRetryableApiError, RunStopped):
                 raise
@@ -1763,6 +1774,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
 
     config = Config(configPath)
     workers = readWorkers(config)
+    readApiMaxAttempts(config)   # fail at once on a bad value, before any paper is processed
     skipExisting = bool(config.general.get('skip_existing', False))
     individualDir = os.path.join(config.dir_structure['outputdir'], 'individual')
     qHash = questionnaireHash(questions)
