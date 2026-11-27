@@ -977,6 +977,173 @@ class EventLoopAndConfigTests(unittest.TestCase):
         with self.assertRaises(fts.PipelineConfigError):
             self.embedCheck(+1)
 
+    def test_run_on_running_loop_from_threads(self):
+        import asyncio, threading, time
+        lt = fts.LoopThread()
+        results = {}
+        def work(i):
+            results[i] = fts.runOnLoop(lt.loop, lambda: asyncio.sleep(0.05, result=i))
+        threads = [threading.Thread(target=work, args=(i,)) for i in range(4)]
+        start = time.perf_counter()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        elapsed = time.perf_counter() - start
+        lt.close()
+        self.assertEqual(results, {0: 0, 1: 1, 2: 2, 3: 3})
+        self.assertLess(elapsed, 0.18)
+        self.assertTrue(lt.loop.is_closed())
+
+    def test_close_releases_blocked_callers(self):
+        import asyncio, threading
+        lt = fts.LoopThread()
+        started, outcome = threading.Event(), {}
+        async def slow():
+            started.set()
+            await asyncio.sleep(30)
+        def work():
+            try:
+                fts.runOnLoop(lt.loop, slow)
+            except BaseException as e:
+                outcome["error"] = e
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        self.assertTrue(started.wait(2))
+        self.assertTrue(lt.close())
+        t.join(5)
+        self.assertFalse(t.is_alive())
+        import concurrent.futures
+        self.assertIsInstance(outcome.get("error"), (asyncio.CancelledError, concurrent.futures.CancelledError))
+        self.assertTrue(lt.loop.is_closed())
+
+    def test_coroutine_timeout_error_propagates(self):
+        import asyncio, threading, time
+        lt = fts.LoopThread()
+        self.addCleanup(lt.close)
+        async def boom():
+            raise asyncio.TimeoutError("inner timeout")
+        outcome = {}
+        def work():
+            try:
+                fts.runOnLoop(lt.loop, boom)
+            except BaseException as e:
+                outcome["error"] = e
+        t = threading.Thread(target=work, daemon=True)
+        start = time.perf_counter()
+        t.start()
+        t.join(3)
+        self.assertFalse(t.is_alive(), "runOnLoop hung on a coroutine TimeoutError")
+        self.assertLess(time.perf_counter() - start, 1.0)
+        self.assertIsInstance(outcome.get("error"), TimeoutError)
+
+    def test_run_on_idle_loop_unchanged(self):
+        import asyncio
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+        self.assertEqual(fts.runOnLoop(loop, lambda: asyncio.sleep(0, result=7)), 7)
+
+    def test_cancel_on_interrupt(self):
+        import asyncio, concurrent.futures, threading
+        lt = fts.LoopThread()
+        self.addCleanup(lt.close)
+        started, cancelled = threading.Event(), threading.Event()
+        async def slow():
+            started.set()
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+        def interrupt(fs, timeout=None, **kw):
+            started.wait(2)
+            raise KeyboardInterrupt
+        with mock.patch.object(concurrent.futures, "wait", interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                fts.runOnLoop(lt.loop, slow)
+        self.assertTrue(cancelled.wait(2))
+
+    def test_serialize_embedding(self):
+        import threading, time
+        state = {"now": 0, "max": 0}
+        guard = threading.Lock()
+        class Stub:
+            def _get_text_embeddings(self, texts):
+                with guard:
+                    state["now"] += 1
+                    state["max"] = max(state["max"], state["now"])
+                time.sleep(0.02)
+                with guard:
+                    state["now"] -= 1
+                return [[0.0] for _ in texts]
+        stub = Stub()
+        lock = threading.Lock()
+        fts.serializeEmbedding(stub, lock)
+        wrapper = stub._get_text_embeddings
+        fts.serializeEmbedding(stub, lock)
+        self.assertIs(stub._get_text_embeddings, wrapper)
+        threads = [threading.Thread(target=stub._get_text_embeddings, args=(["a"],)) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(state["max"], 1)
+
+    def test_serialize_embedding_async_does_not_block_loop(self):
+        import asyncio, threading
+        lock = threading.Lock()
+        class Stub:
+            def _get_text_embedding(self, text):
+                return [1.0]
+            async def _aget_text_embedding(self, text):
+                return [1.0]
+        stub = Stub()
+        fts.serializeEmbedding(stub, lock)
+        async def main():
+            lock.acquire()
+            task = asyncio.ensure_future(stub._aget_text_embedding("x"))
+            await asyncio.sleep(0.05)          # the loop must stay responsive while the lock is held
+            self.assertFalse(task.done())
+            lock.release()
+            return await task
+        self.assertEqual(asyncio.run(main()), [1.0])
+
+    def test_chatbot_uses_run_on_loop(self):
+        import asyncio
+        lt = fts.LoopThread()
+        self.addCleanup(lt.close)
+        class Mem:
+            def __init__(self):
+                self.items = ["old"]
+            def get_all(self):
+                return list(self.items)
+            def set(self, items):
+                self.items = list(items)
+        agent = object.__new__(fts.ChatbotAgents)
+        agent.enable_agent = True
+        agent.max_iterations = 3
+        agent.memory = Mem()
+        agent._loop = lt.loop
+        class Handler:
+            def __init__(self, fail, mem):
+                self.fail, self.mem = fail, mem
+            def __await__(self):
+                async def go():
+                    self.mem.items.append("partial")
+                    if self.fail:
+                        raise RuntimeError("api down")
+                    return types.SimpleNamespace(response=types.SimpleNamespace(content="answer"))
+                return go().__await__()
+        agent.selectedAgent = types.SimpleNamespace(
+            run=lambda user_msg, memory, max_iterations: Handler(False, memory))
+        self.assertEqual(agent.chatbot("q", None), "answer")
+        agent.memory.set(["old"])
+        agent.selectedAgent = types.SimpleNamespace(
+            run=lambda user_msg, memory, max_iterations: Handler(True, memory))
+        with self.assertRaises(RuntimeError):
+            agent.chatbot("q", None)
+        self.assertEqual(agent.memory.items, ["old"])
+
 
 class SplitStringRepairTests(unittest.TestCase):
     """Replies whose Evidence is several quoted strings separated by ';' or ',' (invalid JSON)."""

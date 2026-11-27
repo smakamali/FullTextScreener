@@ -47,6 +47,8 @@ from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, Filt
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.bridge.pydantic import PrivateAttr
 import asyncio
+import threading
+import concurrent.futures
 
 # Append the root directory to path so that the modules can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -693,6 +695,92 @@ def freeModels(llm, embedModel):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+
+class LoopThread:
+    """A daemon thread running one asyncio event loop, shared by all paper workers."""
+    def __init__(self):
+        self.loop = asyncio.new_event_loop()
+        started = threading.Event()
+        def _run():
+            asyncio.set_event_loop(self.loop)
+            self.loop.call_soon(started.set)
+            self.loop.run_forever()
+        self.thread = threading.Thread(target=_run, name="fts-event-loop", daemon=True)
+        self.thread.start()
+        started.wait()
+
+    def close(self, timeout=10):
+        """Cancel pending tasks (so threads blocked in runOnLoop get CancelledError instead of
+        hanging), stop the loop, join the thread and close the loop. Returns True on a clean exit."""
+        if self.loop.is_closed():
+            return True
+        if self.loop.is_running():
+            async def _shutdown():
+                current = asyncio.current_task()
+                tasks = [t for t in asyncio.all_tasks() if t is not current]
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                try:
+                    await self.loop.shutdown_asyncgens()
+                finally:
+                    self.loop.stop()
+            self.loop.call_soon_threadsafe(lambda: self.loop.create_task(_shutdown()))
+        self.thread.join(timeout)
+        if self.thread.is_alive():
+            logging.warning("Event-loop thread did not exit within %s s", timeout)
+            return False
+        self.loop.close()
+        return True
+
+def runOnLoop(loop, coroFactory):
+    """Run a coroutine to completion on `loop`: submitted thread-safely when another thread
+    runs the loop, otherwise with run_until_complete (the single-threaded behaviour)."""
+    if loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coroFactory(), loop)
+        try:
+            # poll, so Ctrl-C stays deliverable on Windows (an untimed wait is not interruptible there)
+            while not future.done():
+                concurrent.futures.wait([future], timeout=0.5)
+            return future.result()
+        except BaseException:
+            future.cancel()
+            raise
+    return loop.run_until_complete(coroFactory())
+
+def serializeEmbedding(embedModel, lock):
+    """Make one embedding model safe to share between threads: every embedding call holds `lock`.
+    The async methods run the (locked) synchronous method in a worker thread, so waiting for the
+    lock never blocks the event-loop thread. Idempotent."""
+    if getattr(embedModel, '_fts_serialized', False):
+        return
+    def lockedSync(original):
+        def wrapper(*args, **kwargs):
+            with lock:
+                return original(*args, **kwargs)
+        wrapper.__name__ = getattr(original, '__name__', 'wrapper')
+        return wrapper
+    syncNames = ['_get_query_embedding', '_get_text_embedding', '_get_text_embeddings']
+    originals = {n: getattr(embedModel, n) for n in syncNames + ['_aget_query_embedding', '_aget_text_embedding']
+                 if hasattr(embedModel, n)}
+    wrapped = {n: lockedSync(originals[n]) for n in syncNames if n in originals}
+    for name, fn in wrapped.items():
+        object.__setattr__(embedModel, name, fn)
+    for name in ('_aget_query_embedding', '_aget_text_embedding'):
+        if name not in originals:
+            continue
+        syncFn = wrapped.get(name.replace('_aget_', '_get_'))
+        if syncFn is None:
+            # no synchronous counterpart: drive the original coroutine in a private loop, under the lock
+            asyncOriginal = originals[name]
+            def syncFn(*args, _orig=asyncOriginal, **kwargs):
+                with lock:
+                    return asyncio.run(_orig(*args, **kwargs))
+        async def asyncWrapper(*args, _fn=syncFn, **kwargs):
+            return await asyncio.to_thread(_fn, *args, **kwargs)
+        object.__setattr__(embedModel, name, asyncWrapper)
+    object.__setattr__(embedModel, '_fts_serialized', True)
+
 ################################ Chatbot Agents ################################
 
 class ChatbotAgents:
@@ -1037,7 +1125,7 @@ class ChatbotAgents:
             # its question or partial reasoning behind; a retry then starts from a clean history.
             memorySnapshot = list(self.memory.get_all())
             try:
-                agentOutput = self._loop.run_until_complete(_run())
+                agentOutput = runOnLoop(self._loop, _run)
             except BaseException:
                 self.memory.set(memorySnapshot)
                 raise
