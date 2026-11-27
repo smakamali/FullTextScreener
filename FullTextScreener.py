@@ -1511,13 +1511,16 @@ def tagDocuments(documents, paperKey, expectedFile=None):
 def checkCompleteResult(data, questions, qHash):
     """
     Whether a saved result can be reused when resuming: (True, "") or (False, reason).
-    A result is reusable if it has a dict answer without an error for every question and, when it records
-    the questionnaire it was made with, that questionnaire is the current one. Results written before the
-    fingerprint was added are accepted if they are otherwise complete.
+    A result is reusable if it records the questionnaire it was made with, that questionnaire is the current
+    one, and it has a dict answer without an error for every question. Results without a fingerprint (written
+    before 0.9.1) are redone: questionnaires with the same question ids (e.g., Q1-Q25 in v2.1 and v3.x) would
+    otherwise pass, although their questions differ.
     """
     if not isinstance(data, dict) or not isinstance(data.get("answers"), dict):
         return False, "it has no answers"
-    if data.get("questionnaire_sha256") and data["questionnaire_sha256"] != qHash:
+    if not data.get("questionnaire_sha256"):
+        return False, "it predates questionnaire fingerprints"
+    if data["questionnaire_sha256"] != qHash:
         return False, "it was made with a different questionnaire"
     answers = data["answers"]
     missing = [q for q in questions if q not in answers]

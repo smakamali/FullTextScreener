@@ -417,8 +417,9 @@ class ResumeTests(unittest.TestCase):
     def test_check_complete_result(self):
         ok, _ = fts.checkCompleteResult(self.complete(questionnaire_sha256=self.hash), self.QUESTIONS, self.hash)
         self.assertTrue(ok)
-        ok, _ = fts.checkCompleteResult(self.complete(), self.QUESTIONS, self.hash)  # written before the fingerprint
-        self.assertTrue(ok)
+        ok, why = fts.checkCompleteResult(self.complete(), self.QUESTIONS, self.hash)  # written before the fingerprint
+        self.assertFalse(ok)
+        self.assertEqual(why, "it predates questionnaire fingerprints")
         ok, why = fts.checkCompleteResult(self.complete(questionnaire_sha256="other"), self.QUESTIONS, self.hash)
         self.assertFalse(ok)
         self.assertIn("different questionnaire", why)
@@ -441,6 +442,19 @@ class ResumeTests(unittest.TestCase):
         self.writeIndividual("a.pdf.partial.json", self.complete())
         self.run_screening()
         self.assertEqual(self.processed, ["a.pdf", "b.pdf"])
+
+    def test_empty_fingerprint_is_missing(self):
+        self.assertEqual(fts.checkCompleteResult(self.complete(questionnaire_sha256=""), self.QUESTIONS, self.hash),
+                         (False, "it predates questionnaire fingerprints"))
+
+    def test_resume_redoes_unfingerprinted_result(self):
+        import contextlib, io
+        self.writeIndividual("a.pdf.json", self.complete())   # complete, but no questionnaire fingerprint
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.run_screening()
+        self.assertIn("a.pdf", self.processed)
+        self.assertIn("it predates questionnaire fingerprints", out.getvalue())
 
     def test_outdated_questionnaire_is_redone(self):
         self.writeIndividual("a.pdf.json", self.complete(questionnaire_sha256="old"))

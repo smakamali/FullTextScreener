@@ -254,7 +254,7 @@ The script will:
 **Failures and resuming:**
 - **A question that fails:** a reply that cannot be parsed is asked once more. If the question still fails, or its API calls keep failing, it is recorded with an `error` key and the run continues. The paper is then saved as `<pdf_filename>.partial.json`.
 - **Errors that stop the run:** errors retrying cannot fix (out of credit, invalid key, unknown model) and setup errors stop the run. `outputFile` is written however the run ends, including on Ctrl-C.
-- **Resuming:** rerun with `skip_existing = True`. Complete results made with the same questionnaire are reused; partial, unreadable or outdated results are redone.
+- **Resuming:** rerun with `skip_existing = True`. Complete results made with the same questionnaire are reused; results without a questionnaire fingerprint (written before 0.9.1), partial, unreadable or outdated results are redone.
 
 **Persistent index (`persistent_index = True`, the default from 0.10.0):**
 - **What is kept:** every indexed paper stays in Neo4j across runs, as `PaperChunk<dim>` nodes in the vector index `paper_chunk_<dim>` (one per embedding dimension), apart from the `Chunk` nodes that the chatbot and runs with `persistent_index = False` search. Each chunk carries a `paper_key`: a fingerprint of the PDF's bytes and of the indexing settings (chunking method and sizes, embedding model, reader version). A marker node (`IndexedPaper`) records how many chunks a paper has once all of them are written.
