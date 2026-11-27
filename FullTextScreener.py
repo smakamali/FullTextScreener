@@ -23,6 +23,7 @@ import json
 import csv
 import hashlib
 import argparse
+from typing import Optional
 import datetime
 import pandas as pd
 from configparser import ConfigParser
@@ -42,6 +43,9 @@ from llama_index.core.utils import iter_batch
 from llama_index.core.agent import ReActAgent
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.vector_stores.neo4jvector import Neo4jVectorStore
+from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, FilterOperator
+from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.bridge.pydantic import PrivateAttr
 import asyncio
 
 # Append the root directory to path so that the modules can be imported
@@ -478,6 +482,42 @@ class Index:
             self.drop_index(index_info)
         print("Database cleared successfully!")
 
+################################ Retrieval Guard ################################
+class ContextLeakError(Exception):
+    """A search for one paper returned a chunk of another paper (or of no known paper), or nothing at all."""
+
+
+class PaperKeyGuard(BaseNodePostprocessor):
+    """
+    Second line of defence behind the retriever's paper filter: every retrieved chunk must carry the paper key
+    of the paper being screened. Otherwise it raises ContextLeakError and records the violation, because the
+    agent library turns tool errors into text and the model could otherwise go on to answer anyway; the answer
+    loop reads the violation with consumeViolation() and records the question as failed.
+    """
+    paperKey: str
+    _violation: Optional[str] = PrivateAttr(default=None)
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "PaperKeyGuard"
+
+    def _postprocess_nodes(self, nodes, query_bundle=None):
+        if not nodes:
+            message = f"the search for paper {self.paperKey} returned no passages"
+        else:
+            foreign = sorted({str(n.node.metadata.get('paper_key')) for n in nodes
+                              if n.node.metadata.get('paper_key') != self.paperKey})
+            message = (f"the search for paper {self.paperKey} returned passages of {', '.join(foreign)}"
+                       if foreign else None)
+        if message:
+            self._violation = message
+            raise ContextLeakError(message)
+        return nodes
+
+    def consumeViolation(self):
+        message, self._violation = self._violation, None
+        return message
+
 ################################ OpenRouter Helpers ################################
 _openRouterContextCache = {}
 
@@ -554,16 +594,29 @@ Query:
         self.inputDir = self.config.dir_structure['inputdir']
         self.vectorTopK = self.config.retriever['vectortopk']
     
-    def _buildVectorQueryEngine(self, forceReindex=False):
+    def _buildVectorQueryEngine(self, forceReindex=False, paperKey=None):
+        """
+        With `paperKey`, every search is restricted to that paper's chunks, and a PaperKeyGuard checks every
+        retrieved chunk before it reaches the model (self.leakGuard). Without it, the whole index is searched,
+        as before (the database then holds only the current paper).
+        """
         if forceReindex:
             self.index.append(inputDocsDir=self.inputDir)
+        filters, postprocessors, self.leakGuard = None, [], None
+        if paperKey:
+            filters = MetadataFilters(filters=[
+                MetadataFilter(key="paper_key", value=paperKey, operator=FilterOperator.EQ)])
+            self.leakGuard = PaperKeyGuard(paperKey=paperKey)
+            postprocessors = [self.leakGuard]
         self.vectorRetriever = VectorIndexRetriever(
             index=self.index.vectorIndex,
-            similarity_top_k=self.vectorTopK
+            similarity_top_k=self.vectorTopK,
+            filters=filters,
         )
         self.vectorQueryEngine = RetrieverQueryEngine.from_args(
             self.vectorRetriever,
             text_qa_template=self.textQaTemplate,
+            node_postprocessors=postprocessors,
         )
         print("Vector Query Engine was built successfully!")
         return self.successMsg
@@ -844,6 +897,17 @@ class ChatbotAgents:
             early_stopping_method="generate",
         )
     
+    def setPaper(self, paperKey):
+        """Restrict the agent's search tool to one paper's chunks (with the leak guard)."""
+        self.queryEngine._buildVectorQueryEngine(paperKey=paperKey)
+        self._buildAll()
+        self.selectDefaultAgent()
+
+    @property
+    def leakGuard(self):
+        queryEngine = getattr(self, 'queryEngine', None)
+        return getattr(queryEngine, 'leakGuard', None)
+
     def appendIndex(self, vectorTopK, cutoffScore):
         self.updateParams(vectorTopK, cutoffScore)
         self.queryEngine._buildVectorQueryEngine(forceReindex=True)
@@ -1344,6 +1408,7 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
     Returns the number of questions that ended with an error.
     """
     failed = 0
+    leakGuard = getattr(screeningAgent, 'leakGuard', None)
     for q_key, q_text in tqdm(questions.items(), desc=f"Processing questions for paper {paper_id}", total=len(questions)):
         query = q_text + ANSWER_INSTRUCTIONS
         parsed, raw, lastError = None, None, None
@@ -1362,6 +1427,12 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
                 print(f"{q_key}: attempt {attempt + 1} failed ({lastError})")
                 continue
             print(raw)
+            if leakGuard is not None:
+                violation = leakGuard.consumeViolation()
+                if violation:
+                    lastError = f"context leak: {violation}"
+                    print(f"{q_key}: {lastError}; the answer is discarded.")
+                    break
             parsed = parseAnswer(raw)
             if parsed is not None:
                 break

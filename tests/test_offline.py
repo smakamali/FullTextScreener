@@ -493,5 +493,102 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(reg.isIndexed("k1"))
 
 
+def chunkNode(text, paperKey):
+    from llama_index.core.schema import TextNode, NodeWithScore
+    meta = {"file_name": f"{paperKey}.pdf"}
+    if paperKey is not None:
+        meta["paper_key"] = paperKey
+    return NodeWithScore(node=TextNode(text=text, metadata=meta), score=1.0)
+
+
+class LeakGuardTests(unittest.TestCase):
+    def test_guard_passes_own_chunks(self):
+        guard = fts.PaperKeyGuard(paperKey="k1")
+        nodes = [chunkNode("a", "k1"), chunkNode("b", "k1")]
+        self.assertEqual(guard.postprocess_nodes(nodes), nodes)
+        self.assertIsNone(guard.consumeViolation())
+
+    def test_guard_raises_on_foreign_chunk(self):
+        guard = fts.PaperKeyGuard(paperKey="k1")
+        with self.assertRaises(fts.ContextLeakError):
+            guard.postprocess_nodes([chunkNode("a", "k1"), chunkNode("b", "k2")])
+        self.assertIn("k2", guard.consumeViolation())
+        self.assertIsNone(guard.consumeViolation())   # consumed
+
+    def test_guard_raises_on_missing_key(self):
+        guard = fts.PaperKeyGuard(paperKey="k1")
+        with self.assertRaises(fts.ContextLeakError):
+            guard.postprocess_nodes([chunkNode("a", None)])
+        self.assertIsNotNone(guard.consumeViolation())
+
+    def test_guard_raises_on_empty_result(self):
+        guard = fts.PaperKeyGuard(paperKey="k1")
+        with self.assertRaises(fts.ContextLeakError):
+            guard.postprocess_nodes([])
+        self.assertIsNotNone(guard.consumeViolation())
+
+    def buildEngine(self, paperKey):
+        from llama_index.core import VectorStoreIndex
+        from llama_index.core.embeddings import MockEmbedding
+        from llama_index.core.llms import MockLLM
+        nodes = [chunkNode(f"paper one passage {i}", "k1").node for i in range(4)]
+        nodes += [chunkNode(f"paper two passage {i}", "k2").node for i in range(4)]
+        index = VectorStoreIndex(nodes=nodes, embed_model=MockEmbedding(embed_dim=8))
+        engine = object.__new__(fts.QueryEngine)
+        engine.index = types.SimpleNamespace(vectorIndex=index)
+        engine.vectorTopK = 6
+        with mock.patch.object(fts.Settings, "_llm", MockLLM()):
+            engine._buildVectorQueryEngine(paperKey=paperKey)
+        return engine
+
+    def test_retriever_gets_paper_filter(self):
+        engine = self.buildEngine("k1")
+        filters = engine.vectorRetriever._filters.filters
+        self.assertEqual([(f.key, f.value, f.operator) for f in filters],
+                         [("paper_key", "k1", fts.FilterOperator.EQ)])
+        self.assertIsInstance(engine.leakGuard, fts.PaperKeyGuard)
+
+    def test_retrieval_returns_only_that_paper(self):
+        for key in ("k1", "k2"):
+            engine = self.buildEngine(key)
+            found = engine.vectorRetriever.retrieve("passage")
+            self.assertEqual(len(found), 4)
+            self.assertEqual({n.node.metadata["paper_key"] for n in found}, {key})
+
+    def test_no_paper_key_means_no_filter_or_guard(self):
+        engine = self.buildEngine(None)
+        self.assertIsNone(engine.vectorRetriever._filters)
+        self.assertIsNone(engine.leakGuard)
+
+
+class GuardedFakeAgent(FakeAgent):
+    """A FakeAgent whose retrieval guard reports a violation during the listed calls (0-based)."""
+    def __init__(self, replies, leakyCalls):
+        super().__init__(replies)
+        self.leakGuard = fts.PaperKeyGuard(paperKey="k1")
+        self.leakyCalls = set(leakyCalls)
+
+    def chatbot(self, queryStr, history):
+        if len(self.queries) in self.leakyCalls:
+            try:
+                self.leakGuard.postprocess_nodes([chunkNode("x", "k2")])
+            except fts.ContextLeakError:
+                pass   # the agent library swallows tool errors and carries on
+        return super().chatbot(queryStr, history)
+
+
+@mock.patch.object(fts.time, "sleep")
+class LeakAnswerLoopTests(unittest.TestCase):
+    def test_violation_recorded_as_failed_question(self, sleep):
+        agent = GuardedFakeAgent([GOOD, GOOD], leakyCalls=[0])
+        answers = {}
+        failed = fts._answerAllQuestions(agent, {"Q1": "q1?", "Q2": "q2?"}, answers, False)
+        self.assertEqual(failed, 1)
+        self.assertTrue(answers["Q1"]["error"].startswith("context leak"))
+        self.assertEqual(answers["Q1"]["ShortAnswer"], "")
+        self.assertEqual(answers["Q2"]["ShortAnswer"], "Yes")
+        self.assertEqual(len(agent.queries), 2)   # not asked again
+
+
 if __name__ == "__main__":
     unittest.main()
