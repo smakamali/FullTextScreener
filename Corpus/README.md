@@ -1,6 +1,6 @@
 # Survey corpus
 
-`survey_corpus.csv` lists every paper extracted for the robust query optimization survey (as of 2026-11-26): 179 papers, of which 172 are in the meta-analysis (`status = Included`) and 7 were excluded after extraction (`status = Excluded`).
+`survey_corpus.csv` lists every paper extracted for the robust query optimization survey (as of 2026-11-26): 179 papers, of which 168 are in the meta-analysis (`status = Included`) and 11 were excluded after extraction (`status = Excluded`): 7 cited only for a general technique or excluded by the authors, and 4 secondary studies (surveys, tutorials, a historical overview; excluded 2026-11-26).
 
 | Column | Content |
 |---|---|
