@@ -291,7 +291,7 @@ Here are the categories of the imports:
 - **`safeApiCall(call, enableLogging, *args, maxAttempts=15, maxWait=60, stopEvent=None, **kwargs)`**
     - **Purpose:** Executes an API call with automatic retries for transient errors.
     - **How It Works:**
-        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to `maxAttempts` times (default 15; the question loop passes `api_max_attempts` from `[general]`, read by `readApiMaxAttempts`; whole number >= 1, worst case about 10 minutes of waiting per call) with capped exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` = 60 s).
+        - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to `maxAttempts` times (default 15; the question loop passes `api_max_attempts` from `[general]`, read by `readApiMaxAttempts`; whole number >= 1, worst case about 9 minutes of waiting per call) with capped exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` = 60 s).
         - Raises `NonRetryableApiError` at once for errors that retrying cannot fix (HTTP 400, 401, 402, 403, 404).
         - Raises `AgentStepLimitError` at once if the agent ran out of reasoning steps, so the caller can decide whether to ask again.
         - Re-raises `concurrent.futures.CancelledError` (the event-loop thread is shutting down) and `RunStopped` at once, without retrying.

@@ -118,7 +118,7 @@ showProgress = True
 skip_existing = False   # True: resume, reusing complete results made with the same questionnaire
 persistent_index = True # keep indexed papers in Neo4j across runs (see "Persistent index" below)
 # workers = 1           # papers processed at once, 1-10 (see "Parallel papers" below)
-# api_max_attempts = 15 # tries per failed API call (default 15, worst case about 10 min of waiting per call)
+# api_max_attempts = 15 # tries per failed API call (default 15, worst case about 9 min of waiting per call)
 ```
 
 ### LLM Model Settings
@@ -321,7 +321,7 @@ Common issues and solutions:
    - Processing fewer papers at once
 
 2. **API Rate Limits**: If you hit API rate limits:
-   - The tool will automatically retry with exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most 60 s per wait); `api_max_attempts` in `[general]` sets the number of attempts per call (default 15, about 10 minutes of waiting per call in the worst case)
+   - The tool will automatically retry with exponential backoff and jitter (a random 50-100 % of 1, 2, 4, ... s, at most 60 s per wait); `api_max_attempts` in `[general]` sets the number of attempts per call (default 15, about 9 minutes of waiting per call in the worst case)
    - Consider using a paid API tier for higher limits
 
 3. **Neo4j Connection Issues**: If you cannot connect to Neo4j:

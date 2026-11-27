@@ -210,7 +210,7 @@ def readWorkers(config):
 
 def readApiMaxAttempts(config):
     """`api_max_attempts` in [general]: how often one failed API call is tried in total before the question
-    counts as failed (whole number >= 1, default 15; the waits between attempts add up to about 10 minutes)."""
+    counts as failed (whole number >= 1, default 15; the waits between attempts add up to about 9 minutes)."""
     attempts = config.general.get('api_max_attempts', DEFAULT_API_MAX_ATTEMPTS)
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
         raise PipelineConfigError(f"api_max_attempts in [general] must be a whole number of at least 1, not {attempts!r}.")
@@ -251,7 +251,8 @@ def getHttpStatus(error):
 def safeApiCall(call, enableLogging, *args, maxAttempts=DEFAULT_API_MAX_ATTEMPTS, maxWait=60, stopEvent=None, **kwargs):
     """
     Call `call(*args, **kwargs)`, retrying transient failures with capped exponential backoff
-    with jitter: a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` (so parallel workers do not retry in step). Errors that retrying cannot fix
+    with jitter: a random 50-100 % of 1, 2, 4, ... s, at most `maxWait` (so parallel workers do not retry in
+    step); there is no wait after the last attempt. Errors that retrying cannot fix
     (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately. A cancelled call
     (concurrent.futures.CancelledError: the event-loop thread is shutting down) and RunStopped are
     re-raised at once. `stopEvent` (a threading.Event, optional): once it is set, a failed call is not
@@ -283,6 +284,8 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=DEFAULT_API_MAX_ATTEMPTS
             lastError = e
             if stopEvent is not None and stopEvent.is_set():
                 raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
+            if attempt == maxAttempts - 1:
+                break   # the last attempt failed: no point in waiting, raise below
             wait = min(2 ** attempt, maxWait) * random.uniform(0.5, 1.0)
             if enableLogging:
                 log_str = f"Error occurred (attempt {attempt + 1}/{maxAttempts}): {e}. Waiting for {wait:.2f} seconds."

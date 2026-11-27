@@ -192,7 +192,9 @@ class ErrorHandlingTests(unittest.TestCase):
                 fts.safeApiCall(call, enableLogging=False, maxAttempts=9)
         uniform.assert_called_with(0.5, 1.0)
         waits = [c.args[0] for c in sleep.call_args_list]
-        self.assertEqual(waits, [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0])   # 50 % of 1, 2, ..., then capped at maxWait 60
+        self.assertEqual(waits, [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0])   # no wait after the last attempt; 50 % of 1, 2, ..., then capped at maxWait 60
+        self.assertEqual(call.call_count, 9)
+        self.assertEqual(len(waits), 8)   # 9 attempts, 8 waits between them
         sleep.reset_mock()
         call.reset_mock()
         with self.assertRaises(Exception):
