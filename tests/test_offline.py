@@ -1131,7 +1131,7 @@ class SharedModelTests(unittest.TestCase):
     def test_without_models_loads_as_before(self, hf, mistral, openrouter, *_):
         def load(agentSelf):
             agentSelf.llm, agentSelf.embedModel = SentinelModel(), SentinelModel()
-        hf.side_effect = lambda: load(agentRef[0])
+        openrouter.side_effect = lambda: load(agentRef[0])
         agentRef = [None]
         original = fts.ChatbotAgents._loadModels
         def capture(agentSelf):
@@ -1139,7 +1139,9 @@ class SharedModelTests(unittest.TestCase):
             return original(agentSelf)
         with mock.patch.object(fts.ChatbotAgents, "_loadModels", capture):
             agent = fts.ChatbotAgents(configPath=TEMPLATE_CONFIG)
-        hf.assert_called_once()   # the template's service is huggingface
+        openrouter.assert_called_once()   # the template's service is openrouter
+        hf.assert_not_called()
+        mistral.assert_not_called()
         self.assertTrue(agent.ownsModels)
 
     def test_cleanup_keeps_shared_models(self, *_):
