@@ -929,9 +929,10 @@ class ChatbotAgents:
                     device='cuda',
                     model_kwargs=modelKwargs,
                 )
+                precision = 'cuda-fp32' if quantization == 'none' else f'cuda-{quantization}'
+                object.__setattr__(embedModel, '_fts_precision', precision)
                 print(f"Embedding model {self.embeddingModelName} loaded on GPU "
-                      f"({torch.cuda.get_device_name(0)}), precision: "
-                      f"{'fp32' if quantization == 'none' else quantization}.")
+                      f"({torch.cuda.get_device_name(0)}), precision: {precision}.")
                 return embedModel
             except Exception as e:
                 print(f"Could not load the embedding model on the GPU ({type(e).__name__}: {e}); "
@@ -945,7 +946,8 @@ class ChatbotAgents:
             trust_remote_code=True,
             device='cpu',
         )
-        print(f"Embedding model {self.embeddingModelName} loaded on CPU, precision: fp32.")
+        object.__setattr__(embedModel, '_fts_precision', 'cpu-fp32')
+        print(f"Embedding model {self.embeddingModelName} loaded on CPU, precision: cpu-fp32.")
         return embedModel
 
         
@@ -1311,11 +1313,20 @@ def questionnaireHash(questions):
 # Bump whenever the PDF reader or the chunking code changes, so that every paper is indexed again.
 READER_VERSION = "1"
 
-def computePaperKey(pdfPath, config):
+def embeddingPrecision(embedModel):
+    """
+    What the embedding model actually loaded as: 'cuda-8bit', 'cuda-4bit', 'cuda-fp16', 'cuda-fp32' or 'cpu-fp32'.
+    buildHuggingFaceEmbedding records it on the model; a model without it counts as the CPU default.
+    """
+    return getattr(embedModel, '_fts_precision', 'cpu-fp32')
+
+def computePaperKey(pdfPath, config, embedPrecision='cpu-fp32'):
     """
     The key that identifies a paper's chunks in the persistent index: a fingerprint of the PDF's bytes and of
     every setting that changes how it is chunked or embedded. The file name is not part of it, so a renamed
     copy reuses the index; a replaced PDF or changed settings get a new key, and so a fresh index.
+    The embedding precision is part of it, except for the CPU default (fp32), so that keys made before
+    the precision existed stay valid.
     """
     nodeParser = config.nodeparser
     service = config.llm_model['service']
@@ -1328,6 +1339,8 @@ def computePaperKey(pdfPath, config):
         "embed_model": config.dict[service].get('embed_model'),
         "reader_version": READER_VERSION,
     }
+    if embedPrecision != 'cpu-fp32':
+        settings["embed_precision"] = embedPrecision
     digest = hashlib.sha256()
     with open(pdfPath, "rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
@@ -1447,7 +1460,8 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
             if persistent:
                 # Index the paper only if the persistent index does not already hold it completely, then
                 # restrict every search to its chunks (see computePaperKey and PaperIndexRegistry).
-                paperKey = computePaperKey(pdf_path, config)
+                precision = embeddingPrecision(screeningAgent.embedModel)
+                paperKey = computePaperKey(pdf_path, config, precision)
                 registry = PaperIndexRegistry(screeningAgent.queryEngine.index.storage)
                 try:
                     if reindex or not registry.isIndexed(paperKey):
@@ -1455,9 +1469,9 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
                         # Read exactly this PDF (not the upload folder, which may hold leftovers of other papers)
                         screeningAgent.appendIndex(vectorTopK, cutoffScore, paperKey=paperKey, inputFiles=[pdf_path])
                         nChunks = registry.markIndexed(paperKey, pdf_filename)
-                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey})")
+                        print(f"Indexed {pdf_filename} ({nChunks} chunks, key {paperKey}, embeddings {precision})")
                     else:
-                        print(f"Reusing the index of {pdf_filename} (key {paperKey})")
+                        print(f"Reusing the index of {pdf_filename} (key {paperKey}, embeddings {precision})")
                 finally:
                     registry.close()
                 screeningAgent.setPaper(paperKey)

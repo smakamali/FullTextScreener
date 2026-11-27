@@ -429,6 +429,35 @@ class PaperKeyTests(unittest.TestCase):
         with mock.patch.object(fts, "READER_VERSION", "2"):
             self.assertNotEqual(base, fts.computePaperKey(path, fakeIndexConfig()))
 
+    def test_cpu_fp32_key_unchanged(self):
+        # The digest was computed with the code from before the precision was added to the key
+        path = self.pdf("a.pdf")
+        cfg = fakeIndexConfig()
+        self.assertEqual(fts.computePaperKey(path, cfg), fts.computePaperKey(path, cfg, "cpu-fp32"))
+        self.assertEqual(fts.computePaperKey(path, cfg), "6a08a8a0199667bf")
+
+    def test_precision_changes_key(self):
+        path = self.pdf("a.pdf")
+        cfg = fakeIndexConfig()
+        self.assertNotEqual(fts.computePaperKey(path, cfg, "cuda-8bit"), fts.computePaperKey(path, cfg, "cpu-fp32"))
+
+    def test_precision_attribute(self):
+        self.assertEqual(fts.embeddingPrecision(types.SimpleNamespace()), "cpu-fp32")
+        self.assertEqual(fts.embeddingPrecision(types.SimpleNamespace(_fts_precision="cuda-8bit")), "cuda-8bit")
+
+    def test_fallback_records_cpu(self):
+        class StubEmbedding:
+            def __init__(self, **kw):
+                self.kw = kw
+        agents = object.__new__(fts.ChatbotAgents)
+        agents.embedDevice = "cuda"
+        agents.embedQuantization = "8bit"
+        agents.embeddingModelName = "some/model"
+        agents.embedMaxLength = 512
+        with mock.patch.object(fts.torch.cuda, "is_available", return_value=False),              mock.patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", StubEmbedding):
+            model = agents.buildHuggingFaceEmbedding()
+        self.assertEqual(fts.embeddingPrecision(model), "cpu-fp32")
+
     def test_tag_documents_excluded_from_embedding_and_llm(self):
         from llama_index.core import Document
         d = Document(text="t", metadata={"file_name": "a.pdf"})
@@ -720,6 +749,7 @@ class PersistentFlowTests(unittest.TestCase):
         for p in patches:
             self.addCleanup(p.stop)
         self.agent = self.agentClass.return_value
+        self.agent.embedModel = types.SimpleNamespace()   # no _fts_precision: the CPU default
 
     def fakeAnswers(self, agent, questions, answers, enableLogging, paperId=""):
         for q, t in questions.items():

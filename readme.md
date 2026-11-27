@@ -111,7 +111,7 @@ The `ConfigLitScr.cfg` file contains all the necessary configuration parameters.
 ### General Settings
 ```
 [general]
-appVersion = 0.10.0
+appVersion = 0.11.0
 forceReindex = False
 enableLogging = True
 showProgress = True
@@ -148,6 +148,8 @@ embedDim = 3584
 # embed_device = cuda         # optional: cpu (default), cuda or auto
 # embed_quantization = 8bit   # optional, GPU only: none, fp16, 8bit or 4bit
 ```
+The embedding precision (`cpu-fp32` by default, or e.g. `cuda-8bit`) is part of each paper's index key: a CPU fp32 run reuses existing indexes, any other precision builds a separate index.
+
 If the context window cannot be looked up and `context_window` is not set, the run stops with an error instead of falling back to llama-index's 3,900-token default, which would truncate the retrieved context.
 
 ### Mistral Settings
