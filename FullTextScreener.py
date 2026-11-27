@@ -239,13 +239,14 @@ def getHttpStatus(error):
         error = error.__cause__ or error.__context__
     return None
 
-def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs):
+def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, stopEvent=None, **kwargs):
     """
     Call `call(*args, **kwargs)`, retrying transient failures with capped exponential backoff
     (1, 2, 4, ... seconds, at most `maxWait` each). Errors that retrying cannot fix
     (see NON_RETRYABLE_STATUS) raise NonRetryableApiError immediately. A cancelled call
     (concurrent.futures.CancelledError: the event-loop thread is shutting down) and RunStopped are
-    re-raised at once.
+    re-raised at once. `stopEvent` (a threading.Event, optional): once it is set, a failed call is not
+    retried and the backoff wait ends early; RunStopped is raised instead.
     """
     lastError = None
     for attempt in range(maxAttempts):
@@ -271,12 +272,17 @@ def safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)
                 # would mostly repeat the same loop, so hand it back to the caller, which may ask once more.
                 raise AgentStepLimitError(str(e)) from e
             lastError = e
+            if stopEvent is not None and stopEvent.is_set():
+                raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
             wait = min(2 ** attempt, maxWait) + random.random()
             if enableLogging:
                 log_str = f"Error occurred (attempt {attempt + 1}/{maxAttempts}): {e}. Waiting for {wait:.2f} seconds."
                 logging.warning(log_str)
                 print(log_str)
-            time.sleep(wait)
+            if stopEvent is None:
+                time.sleep(wait)
+            elif stopEvent.wait(wait):
+                raise RunStopped(f"the run is stopping; not retrying after: {e}") from e
     raise Exception(f"API call failed after {maxAttempts} attempts; last error: {lastError}")
 
 ################################ File Management ################################
@@ -761,7 +767,7 @@ def runOnLoop(loop, coroFactory):
     """Run a coroutine to completion on `loop`: submitted thread-safely when another thread
     runs the loop, otherwise with run_until_complete (the single-threaded behaviour).
     The loop of a LoopThread that is closing or closed is never used (not even run from this thread):
-    RunStopped is raised at once."""
+    RunStopped is raised at once, and also when the loop stops (closing) before running a submitted call."""
     owner = getattr(loop, '_ftsLoopThread', None)
     if owner is not None and (owner.closing or loop.is_closed()):
         raise RunStopped("the event-loop thread is shutting down")
@@ -771,6 +777,11 @@ def runOnLoop(loop, coroFactory):
             # poll, so Ctrl-C stays deliverable on Windows (an untimed wait is not interruptible there)
             while not future.done():
                 concurrent.futures.wait([future], timeout=0.5)
+                if (owner is not None and owner.closing and not loop.is_running()
+                        and not future.done()):
+                    # submitted after close() cancelled the pending tasks: the loop stopped without running it
+                    future.cancel()
+                    raise RunStopped("the event-loop thread shut down before this call ran")
             return future.result()
         except BaseException:
             future.cancel()
@@ -778,7 +789,8 @@ def runOnLoop(loop, coroFactory):
     return loop.run_until_complete(coroFactory())
 
 def serializeEmbedding(embedModel, lock):
-    """Make one embedding model safe to share between threads: every embedding call holds `lock`.
+    """Make one embedding model safe to share between threads: every embedding call holds `lock`, which must
+    be reentrant (threading.RLock): a locked batch method may call the locked single-text method.
     The async methods run the (locked) synchronous method in a worker thread, so waiting for the
     lock never blocks the event-loop thread. Idempotent."""
     if getattr(embedModel, '_fts_serialized', False):
@@ -928,7 +940,8 @@ class ChatbotAgents:
             self.embedModel = HuggingFaceEmbedding(
                 model_name=self.embeddingModelName, 
                 max_length=self.embedMaxLength,
-                trust_remote_code=True
+                trust_remote_code=True,
+                device='cpu',   # the index key records cpu-fp32 for this model (embeddingPrecision)
             )
 
 
@@ -964,7 +977,8 @@ class ChatbotAgents:
         self.embedModel = HuggingFaceEmbedding(
             model_name=self.embeddingModelName, 
             max_length=self.embedMaxLength,
-            trust_remote_code=True
+            trust_remote_code=True,
+            device='cpu',   # the index key records cpu-fp32 for this model (embeddingPrecision)
         )
 
     def getOpenRouterLlmAndEmbedding(self):
@@ -1685,7 +1699,8 @@ def _answerAllQuestions(screeningAgent, questions, paper_answers, enableLogging,
                     screeningAgent.chatbot,
                     enableLogging=enableLogging,
                     queryStr=query if attempt == 0 else query + JSON_REMINDER,
-                    history=None
+                    history=None,
+                    stopEvent=stopEvent,
                 )
             except (NonRetryableApiError, RunStopped):
                 raise
@@ -1753,7 +1768,10 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     qHash = questionnaireHash(questions)
 
     def writeCombined():
-        writeJsonAtomic(output_json_path, results)
+        # in metadata order (with workers > 1, papers finish in any order); anything else afterwards
+        ordered = {row["pdf_filename"]: results[row["pdf_filename"]] for row in rows if row["pdf_filename"] in results}
+        ordered.update((k, v) for k, v in results.items() if k not in ordered)
+        writeJsonAtomic(output_json_path, ordered)
         print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
 
     if workers > 1:
@@ -1868,7 +1886,8 @@ def _screenInParallel(rows, questions, configPath, input_pdf_folder, results, wr
         if not todo:
             return
         models = loadModels(configPath)
-        serializeEmbedding(models[1], threading.Lock())
+        # reentrant: a locked batch method may call the locked single-text method (BaseEmbedding's default)
+        serializeEmbedding(models[1], threading.RLock())
         loopThread = LoopThread()
 
         def work(row):

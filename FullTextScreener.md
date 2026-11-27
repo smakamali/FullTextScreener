@@ -288,12 +288,14 @@ Here are the categories of the imports:
         - Ensures the log directory and file exist.
         - Sets up logging handlers (file and stream) and adjusts log levels for third-party libraries like `requests` and `urllib3`.
         - Returns a logger object for the module.
-- **`safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, **kwargs)`**
+- **`safeApiCall(call, enableLogging, *args, maxAttempts=8, maxWait=60, stopEvent=None, **kwargs)`**
     - **Purpose:** Executes an API call with automatic retries for transient errors.
     - **How It Works:**
         - Retries transient failures (HTTP 408, 429, 5xx, network errors) up to 8 times with capped exponential backoff and jitter.
         - Raises `NonRetryableApiError` at once for errors that retrying cannot fix (HTTP 400, 401, 402, 403, 404).
         - Raises `AgentStepLimitError` at once if the agent ran out of reasoning steps, so the caller can decide whether to ask again.
+        - Re-raises `concurrent.futures.CancelledError` (the event-loop thread is shutting down) and `RunStopped` at once, without retrying.
+        - Stops retrying when the run is stopping: once `stopEvent` is set (another paper hit a run-wide error, or Ctrl-C), a failed call is not retried and the backoff wait ends early, raising `RunStopped`.
 - **`getOpenRouterContextWindow(modelName, apiKey)`**
     - **Purpose:** Looks up the model's context length in OpenRouter's model listing (cached after the first success).
     - **How It Works:** Retries the lookup; if it fails or the model is not listed, raises `PipelineConfigError` instead of falling back to llama-index's 3,900-token default. An explicit `context_window` in the config skips the lookup.

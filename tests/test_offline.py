@@ -139,6 +139,38 @@ class ErrorHandlingTests(unittest.TestCase):
         sleep.assert_not_called()
 
     @mock.patch.object(fts.time, "sleep")
+    def test_stop_event_ends_retries(self, sleep):
+        stop = threading.Event()
+        def failAndStop():
+            stop.set()   # the run starts stopping while this call fails
+            raise _httpError(429)
+        call = mock.Mock(side_effect=failAndStop)
+        with self.assertRaises(fts.RunStopped):
+            fts.safeApiCall(call, enableLogging=False, stopEvent=stop)
+        self.assertEqual(call.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_stop_event_interrupts_backoff(self):
+        stop = threading.Event()
+        call = mock.Mock(side_effect=_httpError(503))
+        timer = threading.Timer(0.1, stop.set)   # set during the first wait (at least 1 s)
+        timer.start()
+        self.addCleanup(timer.cancel)
+        start = time.monotonic()
+        with self.assertRaises(fts.RunStopped):
+            fts.safeApiCall(call, enableLogging=False, maxAttempts=2, stopEvent=stop)
+        self.assertLess(time.monotonic() - start, 0.8)
+        self.assertEqual(call.call_count, 1)
+
+    @mock.patch.object(fts.time, "sleep")
+    def test_unset_stop_event_retries_as_before(self, sleep):
+        call = mock.Mock(side_effect=[_httpError(429), "ok"])
+        stop = mock.Mock(is_set=mock.Mock(return_value=False), wait=mock.Mock(return_value=False))
+        self.assertEqual(fts.safeApiCall(call, enableLogging=False, stopEvent=stop), "ok")
+        self.assertEqual(call.call_count, 2)
+        stop.wait.assert_called_once()
+
+    @mock.patch.object(fts.time, "sleep")
     def test_transient_then_success(self, sleep):
         call = mock.Mock(side_effect=[_httpError(429), _httpError(503), "ok"])
         self.assertEqual(fts.safeApiCall(call, enableLogging=False), "ok")
@@ -267,6 +299,23 @@ class AnswerLoopTests(unittest.TestCase):
                                     stopEvent=stop)
         self.assertEqual(list(answers), ["Q1"])
         self.assertEqual(len(agent.queries), 1)
+
+    def test_stop_event_ends_retry_sequence(self, sleep):
+        """A question inside a 429 retry sequence stops retrying once the run is stopping."""
+        stop = threading.Event()
+
+        class RateLimitedAgent(FakeAgent):
+            def chatbot(self, queryStr, history):
+                self.queries.append(queryStr)
+                stop.set()
+                raise _httpError(429)
+        agent = RateLimitedAgent([])
+        answers = {}
+        with self.assertRaises(fts.RunStopped):
+            fts._answerAllQuestions(agent, {"Q1": "one?", "Q2": "two?"}, answers, enableLogging=False,
+                                    stopEvent=stop)
+        self.assertEqual(len(agent.queries), 1)
+        self.assertEqual(answers, {})
 
 
 class ResumeTests(unittest.TestCase):
@@ -451,8 +500,8 @@ class ParallelRunTests(unittest.TestCase):
             self.stopSeen[row["pdf_filename"]] = True
         raise fts.RunStopped("stopped")
 
-    def run_screening(self, fake, extraPatches=()):
-        self.embed = types.SimpleNamespace()
+    def run_screening(self, fake, extraPatches=(), embed=None):
+        self.embed = types.SimpleNamespace() if embed is None else embed
         self.models = ("llm", self.embed)
         self.argsOk = []
         with contextlib.ExitStack() as stack:
@@ -484,6 +533,41 @@ class ParallelRunTests(unittest.TestCase):
         self.assertTrue(getattr(self.embed, "_fts_serialized", False))
         self.freeModels.assert_called_once_with(*self.models)
         self.close.assert_called_once()
+
+    def test_combined_output_in_metadata_order(self):
+        """Papers finish in any order with workers > 1; the combined output follows the metadata."""
+        def reverseFinisher(row, questions, configPath, folder, models=None, reindex=False, loop=None,
+                            stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            time.sleep(0.02 * (self.N - self.names.index(row["pdf_filename"])))   # later rows finish first
+            return {row["pdf_filename"]: self.complete()}
+        # one paper is reused from an earlier run (skip_existing), the others are processed
+        with open(os.path.join(self.individual, f"{self.names[3]}.json"), "w", encoding="utf-8") as f:
+            json.dump(self.complete(), f)
+        self.run_screening(reverseFinisher)
+        self.assertEqual(list(self.combined()), self.names)
+
+    def test_embedding_lock_is_reentrant(self):
+        """BaseEmbedding's default batch method calls the single-text method: both are locked, so the lock
+        must be reentrant or the first batch deadlocks."""
+        class Stub:
+            def _get_text_embedding(self, text):
+                return [1.0]
+            def _get_text_embeddings(self, texts):
+                return [self._get_text_embedding(t) for t in texts]
+        hung = []
+        def embedding(row, questions, configPath, folder, models=None, reindex=False, loop=None, stopEvent=None):
+            self.record(row, models, loop, stopEvent)
+            t = threading.Thread(target=models[1]._get_text_embeddings, args=(["a", "b"],), daemon=True)
+            t.start()
+            t.join(2)   # a deadlock must fail the test, not hang it
+            with self.lock:
+                hung.append(t.is_alive())
+            return {row["pdf_filename"]: self.complete()}
+        self.writeMetadata(self.names[:2])
+        self.run_screening(embedding, embed=Stub())
+        self.assertTrue(getattr(self.embed, "_fts_serialized", False))
+        self.assertEqual(hung, [False, False])
 
     def test_skip_existing_respected(self):
         for name in self.names[:2]:
@@ -729,9 +813,61 @@ class PaperKeyTests(unittest.TestCase):
         agents.embedQuantization = "8bit"
         agents.embeddingModelName = "some/model"
         agents.embedMaxLength = 512
-        with mock.patch.object(fts.torch.cuda, "is_available", return_value=False),              mock.patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", StubEmbedding):
+        with (mock.patch.object(fts.torch.cuda, "is_available", return_value=False),
+              mock.patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", StubEmbedding)):
             model = agents.buildHuggingFaceEmbedding()
         self.assertEqual(fts.embeddingPrecision(model), "cpu-fp32")
+
+    def buildWithCuda(self, quantization, failOnGpu):
+        """buildHuggingFaceEmbedding with PyTorch seeing a GPU; the stub model fails on 'cuda' if `failOnGpu`
+        (as when bitsandbytes is missing or the GPU runs out of memory)."""
+        class StubEmbedding:
+            def __init__(self, **kw):
+                if failOnGpu and kw.get("device") == "cuda":
+                    raise RuntimeError("CUDA out of memory")
+                self.kw = kw
+        agents = object.__new__(fts.ChatbotAgents)
+        agents.embedDevice = "cuda"
+        agents.embedQuantization = quantization
+        agents.embeddingModelName = "some/model"
+        agents.embedMaxLength = 512
+        with (mock.patch.object(fts.torch.cuda, "is_available", return_value=True),
+              mock.patch.object(fts.torch.cuda, "get_device_name", return_value="Stub GPU"),
+              mock.patch.object(fts.torch.cuda, "empty_cache"),
+              mock.patch("transformers.BitsAndBytesConfig", mock.Mock()),
+              mock.patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", StubEmbedding)):
+            return agents.buildHuggingFaceEmbedding()
+
+    def test_gpu_failure_falls_back_and_records_cpu(self):
+        model = self.buildWithCuda("8bit", failOnGpu=True)
+        self.assertEqual(model.kw["device"], "cpu")
+        self.assertEqual(fts.embeddingPrecision(model), "cpu-fp32")
+
+    def test_gpu_success_records_gpu_precision(self):
+        model = self.buildWithCuda("8bit", failOnGpu=False)
+        self.assertEqual(model.kw["device"], "cuda")
+        self.assertEqual(fts.embeddingPrecision(model), "cuda-8bit")
+
+    def test_mistral_and_huggingface_embeddings_on_cpu(self):
+        """These services do not record a precision (the key says cpu-fp32), so the model must be on the CPU."""
+        seen = []
+        class StubEmbedding:
+            def __init__(self, **kw):
+                seen.append(kw)
+        agents = object.__new__(fts.ChatbotAgents)
+        agents.embeddingModelName = "some/model"
+        agents.embedMaxLength = 512
+        agents.llmModel, agents.apiKey, agents.temperature, agents.max_new_tokens = "m", "k", 0.0, 10
+        agents.do_sample = False
+        fakeLlms = {"llama_index.llms.mistralai": types.SimpleNamespace(MistralAI=mock.Mock()),
+                    "llama_index.llms.huggingface": types.SimpleNamespace(HuggingFaceLLM=mock.Mock())}
+        with (mock.patch.dict(sys.modules, fakeLlms),
+              mock.patch("transformers.BitsAndBytesConfig", mock.Mock()),
+              mock.patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", StubEmbedding)):
+            agents.getMistralLlmAndEmbedding()
+            agents.getHuggingFaceLlmAndEmbedding()
+        self.assertEqual([kw.get("device") for kw in seen], ["cpu", "cpu"])
+        self.assertEqual(fts.embeddingPrecision(agents.embedModel), "cpu-fp32")
 
     def test_tag_documents_excluded_from_embedding_and_llm(self):
         from llama_index.core import Document
@@ -1065,6 +1201,16 @@ class PersistentFlowTests(unittest.TestCase):
         self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("inputFiles"), [os.path.join(self.pdfs, "a.pdf")])
         self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"), loop=None)
 
+    def test_gpu_precision_reaches_key(self):
+        """The embedding model's precision is part of the key: a GPU model never reuses the CPU index."""
+        self.agent.embedModel = types.SimpleNamespace(_fts_precision="cuda-8bit")
+        self.run_paper("a.pdf")
+        gpuKey = fts.computePaperKey(os.path.join(self.pdfs, "a.pdf"), fts.Config(self.config()), "cuda-8bit")
+        self.assertNotEqual(gpuKey, self.key("a.pdf"))
+        self.assertEqual(FakeRegistry.calls[0], ("isIndexed", gpuKey))
+        self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("paperKey"), gpuKey)
+        self.agent.setPaper.assert_called_once_with(gpuKey)
+
     def test_run_stopped_saves_partial_and_is_raised(self):
         stop = threading.Event()
         stop.set()
@@ -1308,6 +1454,37 @@ class EventLoopAndConfigTests(unittest.TestCase):
             factory.assert_not_called()
         finally:
             lt.loop.close()
+
+    def test_submission_racing_close_is_stopped(self):
+        """A coroutine submitted after close() took its snapshot of the tasks is never run nor cancelled
+        by the loop: runOnLoop must notice the stopped loop instead of polling forever."""
+        lt = fts.LoopThread()
+        coros, outcome = [], {}
+        async def never():
+            return "ran"
+        def factory():
+            # runOnLoop passed its closing check; now close() wins the race before the submission
+            lt.closing = True
+            lt.loop.call_soon_threadsafe(lt.loop.stop)
+            lt.thread.join(5)
+            coros.append(never())
+            return coros[-1]
+        def work():
+            try:
+                outcome["result"] = fts.runOnLoop(lt.loop, factory)
+            except BaseException as e:
+                outcome["error"] = e
+        t = threading.Thread(target=work, daemon=True)
+        try:
+            t.start()
+            t.join(5)
+            self.assertFalse(t.is_alive(), "runOnLoop polled forever on a stopped loop")
+            self.assertIsInstance(outcome.get("error"), fts.RunStopped)
+        finally:
+            for c in coros:
+                c.close()
+            if not lt.thread.is_alive():
+                lt.loop.close()
 
     def test_close_releases_blocked_callers(self):
         import asyncio, threading
