@@ -262,13 +262,14 @@ class ResumeTests(unittest.TestCase):
         with open(os.path.join(self.individual, name), "w", encoding="utf-8") as f:
             f.write(content if isinstance(content, str) else json.dumps(content))
 
-    def fakeProcess(self, row, questions, configPath, folder, models=None, reindex=False):
+    def fakeProcess(self, row, questions, configPath, folder, models=None, reindex=False, loop=None):
         self.processed.append(row["pdf_filename"])
         self.modelsSeen.append(models)
+        self.loopsSeen.append(loop)
         return {row["pdf_filename"]: self.complete(questionnaire_sha256=self.hash)}
 
     def run_screening(self, side_effect=None):
-        self.processed, self.modelsSeen = [], []
+        self.processed, self.modelsSeen, self.loopsSeen = [], [], []
         self.models = ("llm", "embed")
         with mock.patch.object(fts, "process_single_paper", side_effect=side_effect or self.fakeProcess),              mock.patch.object(fts, "loadModels", return_value=self.models) as self.loadModels,              mock.patch.object(fts, "freeModels") as self.freeModels:
             fts.literature_screening(self.metadata, self.QUESTIONS, self.config, "pdfs", self.output)
@@ -279,6 +280,13 @@ class ResumeTests(unittest.TestCase):
         self.loadModels.assert_called_once_with(self.config)
         self.assertEqual(self.modelsSeen, [self.models, self.models])
         self.freeModels.assert_called_once_with(*self.models)
+
+    def test_one_event_loop_per_run(self):
+        self.run_screening()
+        loop = self.loopsSeen[0]
+        self.assertIsNotNone(loop)
+        self.assertEqual(self.loopsSeen, [loop, loop])
+        self.assertTrue(loop.is_closed())   # closed once, at the end of the run
 
     def test_no_models_loaded_when_all_skipped(self):
         for name in ("a.pdf", "b.pdf"):
@@ -747,7 +755,7 @@ class PersistentFlowTests(unittest.TestCase):
         # C1: the PDF itself is read, never whatever happens to be in inputDir
         self.agent.uploadFiles.assert_not_called()
         self.assertEqual(self.agent.appendIndex.call_args.kwargs.get("inputFiles"), [os.path.join(self.pdfs, "a.pdf")])
-        self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"))
+        self.agentClass.assert_called_once_with(configPath=mock.ANY, models=("llm", "embed"), loop=None)
 
     def test_indexed_paper_skips_indexing(self):
         FakeRegistry.indexed.add(self.key("a.pdf"))
@@ -834,12 +842,13 @@ class ReviewFixTests(unittest.TestCase):
 
     @mock.patch.object(fts, "getOpenRouterContextWindow", return_value=262144)
     @mock.patch.object(fts.ChatbotAgents, "buildHuggingFaceEmbedding", return_value="embed")
-    def test_openrouter_client_not_reused(self, *_):
+    def test_openrouter_client_reused(self, *_):
+        # One event loop per run (I-A), so the cached client is safe; a new client per step leaked (M3)
         loader = object.__new__(fts.ChatbotAgents)
         loader.contextWindow, loader.apiKey, loader.llmModel = 0, "test-key", "mistralai/mistral-large-2512"
         loader.temperature, loader.max_new_tokens = 0.0, 1024
         loader.getOpenRouterLlmAndEmbedding()
-        self.assertFalse(loader.llm.reuse_client)
+        self.assertTrue(loader.llm.reuse_client)
 
     def storageConfig(self, persistent):
         return types.SimpleNamespace(
@@ -880,6 +889,63 @@ class ReviewFixTests(unittest.TestCase):
         reg = fts.PaperIndexRegistry(storage=storage, driver=db)
         reg.countChunks("k1")
         self.assertIn("(n:`PaperChunk3584`", db.queries[-1][0])
+
+
+class EventLoopAndConfigTests(unittest.TestCase):
+    """Second review: one event loop per run (I-A), embedding size check (M1), persistent default (M2)."""
+
+    def agent(self, **kw):
+        with mock.patch.object(fts, "Settings"),              mock.patch.object(fts.ChatbotAgents, "updateQueryEngine"),              mock.patch.object(fts.ChatbotAgents, "selectDefaultAgent"):
+            return fts.ChatbotAgents(configPath=kw.pop("configPath", TEMPLATE_CONFIG),
+                                     models=(SentinelModel(), SentinelModel()), **kw)
+
+    def test_shared_loop_used_and_not_closed_by_cleanup(self):
+        import asyncio
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+        first, second = self.agent(loop=loop), self.agent(loop=loop)
+        self.assertIs(first._loop, loop)
+        with mock.patch.object(fts.ChatbotAgents, "clearFiles"):
+            first.cleanup()
+        self.assertFalse(loop.is_closed())
+        self.assertIs(second._loop, loop)
+        self.assertEqual(loop.run_until_complete(asyncio.sleep(0, result="ok")), "ok")
+
+    def test_own_loop_closed_by_cleanup(self):
+        agent = self.agent()
+        loop = agent._loop
+        with mock.patch.object(fts.ChatbotAgents, "clearFiles"):
+            agent.cleanup()
+        self.assertTrue(loop.is_closed())
+
+    def test_persistent_flag_read_from_config(self):
+        self.assertTrue(self.agent().persistent)   # the template sets persistent_index = True
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "c.cfg")
+            with open(TEMPLATE_CONFIG, encoding="utf-8") as f:
+                text = f.read().replace("persistent_index = True", "persistent_index = False")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            self.assertFalse(self.agent(configPath=path).persistent)
+
+    def embedCheck(self, size):
+        from configparser import ConfigParser
+        cp = ConfigParser()
+        cp.read(TEMPLATE_CONFIG)
+        dim = cp.getint(cp.get("llm-model", "service"), "embedDim")
+        def fakeLoad(loader):
+            loader.llm = SentinelModel()
+            loader.embedModel = types.SimpleNamespace(get_text_embedding=lambda text: [0.0] * (dim + size))
+        with mock.patch.object(fts.ChatbotAgents, "_loadModels", fakeLoad):
+            return fts.loadModels(TEMPLATE_CONFIG)
+
+    def test_embedding_size_matches_embed_dim(self):
+        llm, embed = self.embedCheck(0)
+        self.assertIsNotNone(embed)
+
+    def test_embedding_size_mismatch_stops(self):
+        with self.assertRaises(fts.PipelineConfigError):
+            self.embedCheck(+1)
 
 
 if __name__ == "__main__":

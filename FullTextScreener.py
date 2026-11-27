@@ -657,6 +657,13 @@ def loadModels(configPath):
     loader.getConfigs()
     loader.getModelConfigs(configPath)
     loader._loadModels()
+    # A wrong embedDim would not fail at indexing: every filtered search (which requires that size) would
+    # just return nothing, and every question would fail as "no passages". Check it once, here.
+    size = len(loader.embedModel.get_text_embedding("embedding size check"))
+    if size != loader.embedDim:
+        raise PipelineConfigError(
+            f"The embedding model {getattr(loader, 'embeddingModelName', '')} returns {size}-dimensional vectors, "
+            f"but embedDim = {loader.embedDim} in [{loader.service}]. Set embedDim = {size}.")
     return loader.llm, loader.embedModel
 
 def freeModels(llm, embedModel):
@@ -696,14 +703,18 @@ class ChatbotAgents:
     successMsg = 'Chatbot Agents updated successfully!'
     availableServices = ['huggingface', 'mistral', 'openrouter']
 
-    def __init__(self, configPath, models=None) -> None:
+    def __init__(self, configPath, models=None, loop=None) -> None:
         """
         `models`: an (llm, embedModel) pair from loadModels(), shared by every paper of a run, so the models are
         loaded once instead of once per paper. Without it, this instance loads (and on cleanup frees) its own.
+        `loop`: the run's event loop, shared by every paper. Shared models hold async clients bound to the loop
+        they first ran on, so all papers must use the same loop; the run closes it at the end. Without it, this
+        instance creates (and on cleanup closes) its own.
         """
         self.configPath = configPath
         self.config = Config(configPath)
-        self.persistent = False   # set by process_single_paper; True keeps the database on cleanup
+        # Same setting the database layer (Storage) reads: True keeps the persistent index on cleanup
+        self.persistent = bool(self.config.general.get('persistent_index', True))
         self.getConfigs()
         self.getModelConfigs(self.configPath)
         if models is not None:
@@ -714,11 +725,12 @@ class ChatbotAgents:
             self.ownsModels = True
         Settings.llm = self.llm
         Settings.embed_model = self.embedModel
-        # One memory buffer and event loop per ChatbotAgents instance (i.e., per paper):
-        # every question for this paper is answered with the full history of earlier
-        # questions and answers. A new paper creates a new instance, so memory starts empty.
+        # One memory buffer per ChatbotAgents instance (i.e., per paper): every question for this paper is
+        # answered with the full history of earlier questions and answers. A new paper creates a new
+        # instance, so memory starts empty. The event loop is the run's (shared) or this instance's own.
         self.memory = ChatMemoryBuffer.from_defaults(token_limit=self.effectiveMemoryLimit())
-        self._loop = asyncio.new_event_loop()
+        self.ownsLoop = loop is None
+        self._loop = asyncio.new_event_loop() if loop is None else loop
         self.updateQueryEngine()
         self.selectDefaultAgent()
     
@@ -854,9 +866,6 @@ class ChatbotAgents:
             temperature=self.temperature,
             max_tokens=self.max_new_tokens,
             context_window=contextWindow,
-            # The LLM is shared by all papers of a run, but each paper's agent runs on its own event loop,
-            # closed after the paper. A cached async client would keep connections bound to a closed loop.
-            reuse_client=False,
         )
         print(f"OpenRouter model {self.llmModel}: context_window = {self.llm.metadata.context_window}")
 
@@ -1079,8 +1088,8 @@ class ChatbotAgents:
             if not self.persistent:
                 self.clearFiles()
 
-            # Drop this paper's agent memory and close its event loop
-            if getattr(self, '_loop', None) is not None and not self._loop.is_closed():
+            # Drop this paper's agent memory, and close its event loop if it is this instance's own
+            if getattr(self, 'ownsLoop', True) and getattr(self, '_loop', None) is not None                     and not self._loop.is_closed():
                 self._loop.close()
             self.memory = None
 
@@ -1334,7 +1343,7 @@ def countPdfWords(pdfPath):
         print(f"Could not read text from {pdfPath}: {e}")
         return 0
 
-def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False):
+def process_single_paper(row, questions, configPath, input_pdf_folder, models=None, reindex=False, loop=None):
     """
     Process a single paper:
       - Instantiate a new screeningAgent (ChatbotAgents), so memory starts empty; `models` (from loadModels)
@@ -1363,7 +1372,7 @@ def process_single_paper(row, questions, configPath, input_pdf_folder, models=No
     paperKey = None
 
     # Instantiate a new screeningAgent for this paper (new memory; the models may be shared).
-    screeningAgent = ChatbotAgents(configPath=configPath, models=models)
+    screeningAgent = ChatbotAgents(configPath=configPath, models=models, loop=loop)
     screeningAgent.persistent = persistent
     try:
         screeningAgent.selectDefaultAgent()
@@ -1561,6 +1570,7 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
         print(f"\nScreening results for {len(results)} paper(s) saved to {output_json_path}")
 
     models = None   # loaded once, when the first paper needs processing, and shared by all papers
+    loop = None     # the run's event loop, shared by all papers (the shared models' async clients are bound to it)
     try:
         for i, row in enumerate(rows):
             paperId = row["pdf_filename"]
@@ -1581,8 +1591,9 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
             try:
                 if models is None:
                     models = loadModels(configPath)
+                    loop = asyncio.new_event_loop()
                 result = process_single_paper(row, questions, configPath, input_pdf_folder,
-                                              models=models, reindex=reindex)
+                                              models=models, reindex=reindex, loop=loop)
             except (NonRetryableApiError, PipelineConfigError) as e:
                 print(f"\nStopped at paper {i+1}/{len(rows)} ({paperId}): {e}\n"
                       f"Answers for this paper so far are in {individualDir}. "
@@ -1600,6 +1611,8 @@ def literature_screening(metadata_file_path, questions, configPath, input_pdf_fo
     finally:
         # Also runs on Ctrl-C and on errors that stop the run, so the combined output is never stale.
         writeCombined()
+        if loop is not None and not loop.is_closed():
+            loop.close()
         if models is not None:
             freeModels(*models)
 
