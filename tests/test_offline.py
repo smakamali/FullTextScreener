@@ -1427,6 +1427,69 @@ class ReviewFixTests(unittest.TestCase):
         reg.countChunks("k1")
         self.assertIn("(n:`PaperChunk3584`", db.queries[-1][0])
 
+    @staticmethod
+    def neo4jError(code):
+        from neo4j.exceptions import Neo4jError
+        return Neo4jError._hydrate_neo4j(code=code, message="An equivalent index already exists")
+
+    def test_store_retries_when_another_worker_created_the_index(self):
+        # Workers > 1 on an empty database: this worker saw no index, another created it first
+        found = mock.Mock(embedding_dimension=3584)
+        race = self.neo4jError("Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists")
+        with mock.patch.object(fts, "Neo4jVectorStore", side_effect=[race, found]) as store, \
+                mock.patch.object(fts, "StorageContext"):
+            storage = fts.Storage(self.storageConfig(True))
+        self.assertIs(storage.vectorStore, found)
+        self.assertEqual(store.call_count, 2)
+        self.assertEqual(store.call_args.kwargs["index_name"], "paper_chunk_3584")
+
+    def test_store_retry_still_checks_dimension(self):
+        race = self.neo4jError("Neo.ClientError.Schema.IndexAlreadyExists")
+        with mock.patch.object(fts, "Neo4jVectorStore", side_effect=[race, mock.Mock(embedding_dimension=1536)]), \
+                mock.patch.object(fts, "StorageContext"):
+            with self.assertRaises(fts.PipelineConfigError):
+                fts.Storage(self.storageConfig(True))
+
+    def test_store_other_neo4j_errors_are_not_retried(self):
+        error = self.neo4jError("Neo.ClientError.Security.Unauthorized")
+        with mock.patch.object(fts, "Neo4jVectorStore", side_effect=error) as store, \
+                mock.patch.object(fts, "StorageContext"):
+            with self.assertRaises(type(error)):
+                fts.Storage(self.storageConfig(True))
+        self.assertEqual(store.call_count, 1)
+
+    def test_store_retries_are_bounded(self):
+        race = self.neo4jError("Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists")
+        with mock.patch.object(fts, "Neo4jVectorStore", side_effect=race) as store, \
+                mock.patch.object(fts, "StorageContext"):
+            with self.assertRaises(type(race)):
+                fts.Storage(self.storageConfig(True))
+        self.assertEqual(store.call_count, fts.SCHEMA_CREATE_ATTEMPTS)
+
+    def test_registry_tolerates_key_index_created_concurrently(self):
+        race = self.neo4jError("Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists")
+
+        class RacingNeo4j(FakeNeo4j):
+            def run(self, query, **params):
+                if query.startswith("CREATE INDEX"):
+                    self.queries.append((query, params))
+                    raise race
+                return super().run(query, **params)
+
+        db = RacingNeo4j()
+        fts.PaperIndexRegistry(storage=None, driver=db, nodeLabel="PaperChunk3584")
+        self.assertEqual(sum(q.startswith("CREATE INDEX") for q, _ in db.queries), 2)
+
+    def test_registry_other_errors_propagate(self):
+        error = self.neo4jError("Neo.ClientError.Security.Forbidden")
+
+        class FailingNeo4j(FakeNeo4j):
+            def run(self, query, **params):
+                raise error
+
+        with self.assertRaises(type(error)):
+            fts.PaperIndexRegistry(storage=None, driver=FailingNeo4j(), nodeLabel="PaperChunk3584")
+
 
 class EventLoopAndConfigTests(unittest.TestCase):
     """Second review: one event loop per run (I-A), embedding size check (M1), persistent default (M2)."""

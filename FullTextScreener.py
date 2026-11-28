@@ -29,6 +29,7 @@ import pandas as pd
 from configparser import ConfigParser
 from tqdm import tqdm
 from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError as Neo4jClientError
 import torch
 
 import huggingface_hub
@@ -189,6 +190,19 @@ NON_RETRYABLE_STATUS = {400, 401, 402, 403, 404}
 
 class PipelineConfigError(Exception):
     """A setup problem that affects every paper (bad config, unknown model); the run stops at once."""
+
+# Neo4j error codes for "this index or constraint already exists". With workers > 1 every worker builds its own
+# Storage at about the same time; on an empty database they all see no vector index and all try to create it, and
+# every worker but the first gets one of these. The index they wanted exists, so this is not an error.
+SCHEMA_EXISTS_CODES = frozenset({
+    "Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists",
+    "Neo.ClientError.Schema.IndexAlreadyExists",
+    "Neo.ClientError.Schema.ConstraintAlreadyExists",
+})
+SCHEMA_CREATE_ATTEMPTS = 3
+
+def isSchemaAlreadyExists(error):
+    return isinstance(error, Neo4jClientError) and getattr(error, "code", None) in SCHEMA_EXISTS_CODES
 
 class RunStopped(Exception):
     """The run is stopping (another paper hit a run-wide error, or Ctrl-C): this paper ends at its next question."""
@@ -361,13 +375,7 @@ class Storage:
         storeNames = {}
         if self.persistent:
             storeNames = {"node_label": f"PaperChunk{self.embedDim}", "index_name": f"paper_chunk_{self.embedDim}"}
-        self.vectorStore = Neo4jVectorStore(
-            username=self.username,
-            password=self.password,
-            url=self.url,
-            embedding_dimension=self.embedDim,
-            **storeNames,
-        )
+        self.vectorStore = self._buildVectorStore(storeNames)
         storedDim = getattr(self.vectorStore, 'embedding_dimension', self.embedDim)
         if self.persistent and storedDim != self.embedDim:
             raise PipelineConfigError(
@@ -376,6 +384,26 @@ class Storage:
         self.storageContextVector = StorageContext.from_defaults(
             vector_store=self.vectorStore,
         )
+
+    def _buildVectorStore(self, storeNames):
+        """
+        Neo4jVectorStore creates its vector index when it finds none. Another worker may create that index between
+        the check and the create; the create then fails with "already exists". Building the store again finds
+        the index and reads its dimension, which the caller still checks against embedDim.
+        """
+        for attempt in range(1, SCHEMA_CREATE_ATTEMPTS + 1):
+            try:
+                return Neo4jVectorStore(
+                    username=self.username,
+                    password=self.password,
+                    url=self.url,
+                    embedding_dimension=self.embedDim,
+                    **storeNames,
+                )
+            except Neo4jClientError as e:
+                if not isSchemaAlreadyExists(e) or attempt == SCHEMA_CREATE_ATTEMPTS:
+                    raise
+                logging.info(f"Vector index was created by another worker ({e.code}); connecting to it.")
 
     def getConfigs(self):
         self.url = self.config.neo4j['url1']
@@ -408,8 +436,17 @@ class PaperIndexRegistry:
         self.driver = driver or GraphDatabase.driver(storage.url, auth=(storage.username, storage.password))
         self.label = nodeLabel or storage.vectorStore.node_label
         # Without these, the filtered search and the chunk counts scan every chunk of every paper.
-        self._run(f"CREATE INDEX {self.label.lower()}_paper_key IF NOT EXISTS FOR (n:`{self.label}`) ON (n.paper_key)")
-        self._run("CREATE INDEX indexed_paper_key IF NOT EXISTS FOR (m:IndexedPaper) ON (m.paper_key)")
+        self._createIndex(f"CREATE INDEX {self.label.lower()}_paper_key IF NOT EXISTS FOR (n:`{self.label}`) ON (n.paper_key)")
+        self._createIndex("CREATE INDEX indexed_paper_key IF NOT EXISTS FOR (m:IndexedPaper) ON (m.paper_key)")
+
+    def _createIndex(self, query):
+        # IF NOT EXISTS is not atomic across sessions: two workers creating the same index at once can still
+        # get "already exists". The index is then there, which is all that is needed.
+        try:
+            self._run(query)
+        except Neo4jClientError as e:
+            if not isSchemaAlreadyExists(e):
+                raise
 
     def _run(self, query, **params):
         with self.driver.session() as session:
